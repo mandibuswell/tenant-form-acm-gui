@@ -1,6 +1,7 @@
 export const DEFAULT_NAMESPACE = 'tenancies';
 export const DEFAULT_MY_ASN = '64500';
-export const DEMO_CLIENT_SECRET = 'VDRjA2vWjJwlSZQ9tickuGkBQpiiJHdN';
+/** Shared default UDN CIDR — overridable per tenant; overlap across tenants is valid (isolated UDNs). */
+export const DEFAULT_UDN_SUBNET = '10.128.0.0/16';
 
 export interface MetallbForm {
   myASN: string;

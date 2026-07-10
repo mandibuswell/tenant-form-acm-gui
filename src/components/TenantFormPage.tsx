@@ -21,6 +21,7 @@ import {
   InputGroupItem,
   Content,
   Spinner,
+  FormHelperText,
 } from '@patternfly/react-core';
 import { PlusCircleIcon, MinusCircleIcon } from '@patternfly/react-icons';
 import { k8sCreate, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
@@ -37,7 +38,7 @@ import {
   buildTenantResource,
   defaultTenantSpec,
   derivedGroups,
-  demoClientSecretForEnable,
+  generateClientSecret,
   parseTenantResource,
   resolveTenantIdentity,
   specField,
@@ -197,20 +198,15 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const updateIdentity = (key: keyof TenantSpecForm['identity'], val: string | boolean) =>
     setSpec((prev) => ({ ...prev, identity: { ...prev.identity, [key]: val } }));
 
-  const generateClientSecret = () => {
-    const bytes = new Uint8Array(24);
-    crypto.getRandomValues(bytes);
-    const secret = btoa(String.fromCharCode(...bytes))
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_');
+  const handleGenerateClientSecret = () => {
     setIdentitySecretUnchanged(false);
-    updateIdentity('clientSecret', secret);
+    updateIdentity('clientSecret', generateClientSecret());
   };
 
   const enableIdentity = (enabled: boolean) => {
     updateIdentity('enabled', enabled);
     if (enabled && !spec.identity.clientSecret.trim() && !isEdit) {
-      updateIdentity('clientSecret', demoClientSecretForEnable());
+      updateIdentity('clientSecret', generateClientSecret());
     }
     if (enabled) {
       setIdentityExpanded(true);
@@ -580,10 +576,14 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
               <FormGroup label="Network CIDR" fieldId="udn-subnet">
                 <TextInput
                   id="udn-subnet"
-                  placeholder="e.g. 10.128.0.0/16"
+                  placeholder="10.128.0.0/16"
                   value={spec.network.udnSubnet}
                   onChange={(_e, v) => updateNetwork('udnSubnet', v)}
                 />
+                <FormHelperText>
+                  Defaults to <strong>10.128.0.0/16</strong> if left empty. The same CIDR across
+                  tenants is valid — each UDN is a fully isolated network.
+                </FormHelperText>
               </FormGroup>
             </FormSection>
             <FormSection title="Service Provider BGP Peering">
@@ -683,7 +683,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                           />
                         </InputGroupItem>
                         <InputGroupItem>
-                          <Button variant="secondary" onClick={generateClientSecret}>
+                          <Button variant="secondary" onClick={handleGenerateClientSecret}>
                             Generate
                           </Button>
                         </InputGroupItem>
