@@ -2,7 +2,7 @@ import { k8sCreate, k8sGet, k8sUpdate } from '@openshift-console/dynamic-plugin-
 import {
   DEFAULT_MY_ASN,
   DEFAULT_NAMESPACE,
-  DEMO_CLIENT_SECRET,
+  DEFAULT_UDN_SUBNET,
   IdentityForm,
   MetallbForm,
   TenantFormMode,
@@ -33,7 +33,7 @@ export const defaultTenantSpec = (): TenantSpecForm => ({
   vmQuota: { cpu: '80', memory: '320Gi' },
   limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
   network: {
-    udnSubnet: '',
+    udnSubnet: DEFAULT_UDN_SUBNET,
     metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
   },
   identity: {
@@ -135,7 +135,7 @@ export function parseTenantResource(tenant: TenantResource): {
       maxStorage: lr.maxStorage ?? '1Ti',
     },
     network: {
-      udnSubnet: str(network.udnSubnet),
+      udnSubnet: str(network.udnSubnet) || DEFAULT_UDN_SUBNET,
       metallb: parseMetallb(network.metallb as Record<string, unknown>),
     },
     identity: parseIdentity(s.identity as Record<string, unknown>),
@@ -284,9 +284,7 @@ export function buildTenantResource(params: {
   }
 
   const network: Record<string, unknown> = {};
-  if (spec.network.udnSubnet.trim()) {
-    network.udnSubnet = spec.network.udnSubnet.trim();
-  }
+  network.udnSubnet = spec.network.udnSubnet.trim() || DEFAULT_UDN_SUBNET;
   const mb = spec.network.metallb;
   const hasMetallb =
     mb.peerASN || mb.peerAddress || effectiveVrf || mb.addresses.some((a) => a.trim());
@@ -401,4 +399,9 @@ export function shouldExpandNetwork(spec: TenantSpecForm): boolean {
   );
 }
 
-export const demoClientSecretForEnable = (): string => DEMO_CLIENT_SECRET;
+/** Generate a URL-safe random OIDC client secret (base64url, 32 chars). */
+export function generateClientSecret(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_');
+}
