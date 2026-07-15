@@ -46,6 +46,26 @@ spec:
                       type: array
                       items:
                         type: string
+                seedVm:
+                  type: object
+                  description: Status of automatic starter VM seeding (ManifestWork).
+                  properties:
+                    phase:
+                      type: string
+                      description: Pending, Ready, Skipped, Error, or Disabled.
+                    message:
+                      type: string
+                    cluster:
+                      type: string
+                      description: Managed cluster hosting the ManifestWork.
+                    vmName:
+                      type: string
+                    manifestWork:
+                      type: string
+                      description: ManifestWork name in the cluster namespace.
+                    printableStatus:
+                      type: string
+                      description: Latest VirtualMachine printableStatus from ManifestWork feedback.
             spec:
               type: object
               required:
@@ -101,6 +121,46 @@ spec:
                     Workloads to provision for this tenant. vms — VM/Fleet
                     Virtualization (default); containers — application workloads;
                     both — VM and container resources on capable clusters.
+
+                # -----------------------------------------------------------
+                # Optional starter VM (hub ManifestWork reconciler)
+                # -----------------------------------------------------------
+                seedStarterVm:
+                  type: object
+                  description: >-
+                    When enabled (default for vms/both), the hub VM-seed
+                    reconciler creates a ManifestWork with a RHEL9 starter VM
+                    on a managed cluster with tenancy.acm.io/capability-vm.
+                    Workshop / demo use — not required for production tenants.
+                  properties:
+                    enabled:
+                      type: boolean
+                      default: true
+                      description: >-
+                        Create a starter VM for this tenant. Defaults to true
+                        for vms/both when omitted; set false to opt out.
+                        Ignored when workloadProfile is containers.
+                    cluster:
+                      type: string
+                      description: >-
+                        Target managed cluster for the ManifestWork.
+                        Defaults to virtualisation-cluster, else the first
+                        Available cluster labelled tenancy.acm.io/capability-vm=true.
+                    vmName:
+                      type: string
+                      description: VirtualMachine name. Defaults to {tenant}-starter.
+                    cpu:
+                      type: string
+                      default: "1"
+                      description: Guest CPU cores for the starter VM.
+                    memory:
+                      type: string
+                      default: "2Gi"
+                      description: Guest memory request for the starter VM.
+                    disk:
+                      type: string
+                      default: "30Gi"
+                      description: Root disk size for the starter VM DataVolume.
 
                 # -----------------------------------------------------------
                 # Optional console SSO (OpenShift OAuth IdP)
@@ -273,9 +333,11 @@ spec:
                   properties:
                     udnSubnet:
                       type: string
+                      default: "10.128.0.0/16"
                       description: >-
-                        CIDR for the tenant's primary UDN. May overlap other
-                        tenants — each UDN is a fully isolated logical network.
+                        CIDR for the tenant's primary UDN. Defaults to 10.128.0.0/16 when
+                        omitted. May overlap other tenants — each UDN is a fully isolated
+                        logical network.
                     metallb:
                       type: object
                       description: >-

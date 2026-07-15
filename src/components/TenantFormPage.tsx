@@ -437,7 +437,17 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   <FormSelect
                     id="workload-profile"
                     value={spec.workloadProfile}
-                    onChange={(_e, v) => updateSpec('workloadProfile', v as WorkloadProfile)}
+                    onChange={(_e, v) => {
+                      const profile = v as WorkloadProfile;
+                      setSpec((prev) => ({
+                        ...prev,
+                        workloadProfile: profile,
+                        seedStarterVm: {
+                          ...prev.seedStarterVm,
+                          enabled: profile === 'vms' || profile === 'both',
+                        },
+                      }));
+                    }}
                   >
                     <FormSelectOption value="vms" label="VMs (Fleet Virtualization)" />
                     <FormSelectOption value="containers" label="Containers" />
@@ -461,6 +471,82 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   />
                 </FormGroup>
               </GridItem>
+              {wantsVms && (
+                <GridItem span={12}>
+                  <FormGroup fieldId="seed-starter-vm">
+                    <input
+                      id="seed-starter-vm"
+                      type="checkbox"
+                      checked={spec.seedStarterVm.enabled}
+                      onChange={(e) =>
+                        setSpec((prev) => ({
+                          ...prev,
+                          seedStarterVm: { ...prev.seedStarterVm, enabled: e.target.checked },
+                        }))
+                      }
+                    />
+                    {' '}
+                    <label htmlFor="seed-starter-vm">
+                      Provision starter VM automatically
+                    </label>
+                    <Content
+                      component="p"
+                      style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)', marginTop: '0.25rem' }}
+                    >
+                      Creates a RHEL9 starter VM on the virt spoke via hub ManifestWork
+                      (default on for VM tenants). Login: <code>cloud-user</code> / <code>redhat</code>.
+                    </Content>
+                  </FormGroup>
+                  {spec.seedStarterVm.enabled && (
+                    <Grid hasGutter style={{ marginTop: '0.75rem' }}>
+                      <GridItem span={6}>
+                        <FormGroup
+                          label="Target cluster"
+                          fieldId="seed-vm-cluster"
+                          labelHelp={helpPopover(
+                            'Managed cluster for the ManifestWork. Defaults to virtualisation-cluster.',
+                            'Target cluster',
+                          )}
+                        >
+                          <TextInput
+                            id="seed-vm-cluster"
+                            value={spec.seedStarterVm.cluster}
+                            onChange={(_e, v) =>
+                              setSpec((prev) => ({
+                                ...prev,
+                                seedStarterVm: { ...prev.seedStarterVm, cluster: v },
+                              }))
+                            }
+                            placeholder="virtualisation-cluster"
+                          />
+                        </FormGroup>
+                      </GridItem>
+                      <GridItem span={6}>
+                        <FormGroup
+                          label="VM name"
+                          fieldId="seed-vm-name"
+                          labelHelp={helpPopover(
+                            'Defaults to {tenant}-starter when left blank.',
+                            'VM name',
+                          )}
+                        >
+                          <TextInput
+                            id="seed-vm-name"
+                            value={spec.seedStarterVm.vmName}
+                            onChange={(_e, v) =>
+                              setSpec((prev) => ({
+                                ...prev,
+                                seedStarterVm: { ...prev.seedStarterVm, vmName: v },
+                              }))
+                            }
+                            placeholder={tenantName ? `${tenantName}-starter` : 'tenant-starter'}
+                          />
+                        </FormGroup>
+                      </GridItem>
+                    </Grid>
+                  )}
+                </GridItem>
+              )}
             </Grid>
           </FormSection>
 
