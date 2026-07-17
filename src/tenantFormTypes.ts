@@ -27,6 +27,13 @@ export interface IdentityForm {
 
 export type WorkloadProfile = 'vms' | 'containers' | 'both';
 
+export interface SeedStarterVmForm {
+  /** Default true for vms/both — set false to opt out */
+  enabled: boolean;
+  cluster: string;
+  vmName: string;
+}
+
 export interface TenantSpecForm {
   displayName: string;
   owner: string;
@@ -39,6 +46,7 @@ export interface TenantSpecForm {
   vmQuota: { cpu: string; memory: string };
   limitRange: { maxCpu: string; maxMemory: string; maxStorage: string };
   network: { udnSubnet: string; metallb: MetallbForm };
+  seedStarterVm: SeedStarterVmForm;
   identity: IdentityForm;
 }
 

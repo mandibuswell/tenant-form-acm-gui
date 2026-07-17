@@ -43,14 +43,15 @@ sed "s|quay.io/nday/tenant-form-acm-gui:latest|${IMAGE}|g" \
 echo "==> [4/5] Registering ConsolePlugin..."
 oc apply -f "${SCRIPT_DIR}/03-consoleplugin.yaml"
 
-# 5. Enable the plugin on the cluster console
+# 5. Enable the plugin on the cluster console (append only — never replace the list)
 echo "==> [5/5] Enabling plugin in the console..."
+PLUGIN_NAME="tenant-form-acm-gui"
 EXISTING=$(oc get console.operator cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo "[]")
-if echo "${EXISTING}" | grep -q "tenant-form-acm-gui"; then
+if echo "${EXISTING}" | grep -q "\"${PLUGIN_NAME}\""; then
   echo "    Plugin already enabled in console.operator/cluster"
 else
-  oc patch console.operator cluster --type merge \
-    --patch '{"spec":{"plugins":["tenant-form-acm-gui"]}}'
+  oc patch console.operator cluster --type=json \
+    -p="[{\"op\":\"add\",\"path\":\"/spec/plugins/-\",\"value\":\"${PLUGIN_NAME}\"}]"
 fi
 
 echo ""

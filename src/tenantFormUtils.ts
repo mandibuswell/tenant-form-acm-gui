@@ -5,6 +5,7 @@ import {
   DEFAULT_UDN_SUBNET,
   IdentityForm,
   MetallbForm,
+  SeedStarterVmForm,
   TenantFormMode,
   TenantResource,
   TenantSpecForm,
@@ -35,6 +36,11 @@ export const defaultTenantSpec = (): TenantSpecForm => ({
   network: {
     udnSubnet: DEFAULT_UDN_SUBNET,
     metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
+  },
+  seedStarterVm: {
+    enabled: true,
+    cluster: 'virtualisation-cluster',
+    vmName: '',
   },
   identity: {
     enabled: false,
@@ -93,6 +99,24 @@ const parseIdentity = (raw: Record<string, unknown> | undefined): IdentityForm =
   };
 };
 
+const parseSeedStarterVm = (
+  raw: Record<string, unknown> | undefined,
+  workloadProfile: WorkloadProfile,
+): SeedStarterVmForm => {
+  const wantsVm = workloadProfile === 'vms' || workloadProfile === 'both';
+  const base = defaultTenantSpec().seedStarterVm;
+  if (!raw) {
+    return { ...base, enabled: wantsVm };
+  }
+  // Explicit false opts out; omit / true keeps default-on for VM profiles
+  const enabled = raw.enabled === false ? false : wantsVm ? true : Boolean(raw.enabled);
+  return {
+    enabled,
+    cluster: str(raw.cluster) || base.cluster,
+    vmName: str(raw.vmName),
+  };
+};
+
 /** Map a Tenant CR from the API into form state. */
 export function parseTenantResource(tenant: TenantResource): {
   name: string;
@@ -138,6 +162,10 @@ export function parseTenantResource(tenant: TenantResource): {
       udnSubnet: str(network.udnSubnet) || DEFAULT_UDN_SUBNET,
       metallb: parseMetallb(network.metallb as Record<string, unknown>),
     },
+    seedStarterVm: parseSeedStarterVm(
+      s.seedStarterVm as Record<string, unknown> | undefined,
+      workloadProfile,
+    ),
     identity: parseIdentity(s.identity as Record<string, unknown>),
   };
 
@@ -301,6 +329,23 @@ export function buildTenantResource(params: {
   }
   if (Object.keys(network).length) {
     (tenant.spec as Record<string, unknown>).network = network;
+  }
+
+  const wantsVmProfile =
+    spec.workloadProfile === 'vms' || spec.workloadProfile === 'both';
+  if (wantsVmProfile) {
+    const seed: Record<string, unknown> = {
+      enabled: spec.seedStarterVm.enabled,
+    };
+    if (spec.seedStarterVm.cluster.trim()) {
+      seed.cluster = spec.seedStarterVm.cluster.trim();
+    }
+    if (spec.seedStarterVm.vmName.trim()) {
+      seed.vmName = spec.seedStarterVm.vmName.trim();
+    }
+    (tenant.spec as Record<string, unknown>).seedStarterVm = seed;
+  } else if (existing?.spec?.seedStarterVm) {
+    (tenant.spec as Record<string, unknown>).seedStarterVm = { enabled: false };
   }
 
   if (spec.identity.enabled) {
