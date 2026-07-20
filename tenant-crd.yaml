@@ -108,7 +108,8 @@ spec:
                     Namespace created on managed clusters for this tenant's
                     workloads (quotas, UDN, VMs). Defaults to the tenant name
                     when unset (e.g. starwars). Use {tenant}-ns for a suffix
-                    convention.
+                    convention. Not used for workloadProfile clusters (CaaS);
+                    see clusterAsAService.hcpNamespace for the hub HCP namespace.
 
                 workloadProfile:
                   type: string
@@ -116,11 +117,46 @@ spec:
                     - vms
                     - containers
                     - both
+                    - clusters
                   default: vms
                   description: >-
                     Workloads to provision for this tenant. vms — VM/Fleet
                     Virtualization (default); containers — application workloads;
-                    both — VM and container resources on capable clusters.
+                    both — VM and container resources on capable clusters;
+                    clusters — Cluster-as-a-Service (HCP on the hub; no spoke VM
+                    quotas or virt MCRAs).
+
+                # -----------------------------------------------------------
+                # Cluster-as-a-Service (workloadProfile: clusters)
+                # -----------------------------------------------------------
+                clusterAsAService:
+                  type: object
+                  description: >-
+                    Options for Cluster-as-a-Service tenants (workloadProfile
+                    clusters). Hub policies create the HCP control-plane
+                    namespace; HostedCluster automation is a follow-on.
+                  properties:
+                    hcpNamespace:
+                      type: string
+                      description: >-
+                        Hub namespace for this tenant's hosted control plane(s).
+                        Defaults to {tenant}-hcp when unset.
+                    hubResourceQuota:
+                      type: object
+                      description: >-
+                        ResourceQuota applied to the hub HCP namespace so
+                        control-plane pods cannot unbounded-consume the hub.
+                        Defaults applied by policy when omitted.
+                      properties:
+                        cpu:
+                          type: string
+                          default: "40"
+                        memory:
+                          type: string
+                          default: "64Gi"
+                        pods:
+                          type: string
+                          default: "100"
 
                 # -----------------------------------------------------------
                 # Optional starter VM (hub ManifestWork reconciler)
@@ -139,7 +175,7 @@ spec:
                       description: >-
                         Create a starter VM for this tenant. Defaults to true
                         for vms/both when omitted; set false to opt out.
-                        Ignored when workloadProfile is containers.
+                        Ignored when workloadProfile is containers or clusters.
                     cluster:
                       type: string
                       description: >-

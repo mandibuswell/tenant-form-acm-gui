@@ -51,6 +51,8 @@ const profileLabel = (profile: WorkloadProfile): string => {
       return 'Containers';
     case 'both':
       return 'Containers + VMs';
+    case 'clusters':
+      return 'Clusters (CaaS)';
     default:
       return 'VMs';
   }

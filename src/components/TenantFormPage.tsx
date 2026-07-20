@@ -430,7 +430,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   label="Workload profile"
                   fieldId="workload-profile"
                   labelHelp={helpPopover(
-                    'Controls which ACM policies provision resources on capable clusters. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. Narrowing the profile (for example both → vms) does not delete existing resources — remove them manually via fleet search. Widening the profile (for example vms → both) adds new resources on the next policy cycle where cluster capability labels match; the workload namespace name is unchanged.',
+                    'Controls which ACM policies provision resources. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. clusters — Cluster-as-a-Service (hub HCP namespace; no spoke VM quotas). Narrowing the profile does not delete existing resources.',
                     'Workload profile',
                   )}
                 >
@@ -452,6 +452,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                     <FormSelectOption value="vms" label="VMs (Fleet Virtualization)" />
                     <FormSelectOption value="containers" label="Containers" />
                     <FormSelectOption value="both" label="Both" />
+                    <FormSelectOption value="clusters" label="Clusters (CaaS / HCP)" />
                   </FormSelect>
                 </FormGroup>
               </GridItem>
@@ -471,6 +472,83 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   />
                 </FormGroup>
               </GridItem>
+              {spec.workloadProfile === 'clusters' && (
+                <GridItem span={12}>
+                  <Content
+                    component="p"
+                    style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}
+                  >
+                    CaaS tenants get a hub namespace <strong>{tenantName ? `${tenantName}-hcp` : '{tenant}-hcp'}</strong>{' '}
+                    (override below). Spoke VM quotas, AAQ, and VMaaS portal bindings are not applied.
+                  </Content>
+                  <Grid hasGutter style={{ marginTop: '0.75rem' }}>
+                    <GridItem span={6}>
+                      <FormGroup
+                        label="HCP namespace"
+                        fieldId="caas-hcp-ns"
+                        labelHelp={helpPopover(
+                          'Hub namespace for hosted control plane(s). Defaults to {tenant}-hcp.',
+                          'HCP namespace',
+                        )}
+                      >
+                        <TextInput
+                          id="caas-hcp-ns"
+                          value={spec.clusterAsAService.hcpNamespace}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              clusterAsAService: { ...prev.clusterAsAService, hcpNamespace: v },
+                            }))
+                          }
+                          placeholder={tenantName ? `${tenantName}-hcp` : 'tenant-hcp'}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={2}>
+                      <FormGroup label="Hub CPU" fieldId="caas-hub-cpu">
+                        <TextInput
+                          id="caas-hub-cpu"
+                          value={spec.clusterAsAService.hubCpu}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              clusterAsAService: { ...prev.clusterAsAService, hubCpu: v },
+                            }))
+                          }
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={2}>
+                      <FormGroup label="Hub memory" fieldId="caas-hub-mem">
+                        <TextInput
+                          id="caas-hub-mem"
+                          value={spec.clusterAsAService.hubMemory}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              clusterAsAService: { ...prev.clusterAsAService, hubMemory: v },
+                            }))
+                          }
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={2}>
+                      <FormGroup label="Hub pods" fieldId="caas-hub-pods">
+                        <TextInput
+                          id="caas-hub-pods"
+                          value={spec.clusterAsAService.hubPods}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              clusterAsAService: { ...prev.clusterAsAService, hubPods: v },
+                            }))
+                          }
+                        />
+                      </FormGroup>
+                    </GridItem>
+                  </Grid>
+                </GridItem>
+              )}
               {wantsVms && (
                 <GridItem span={12}>
                   <FormGroup fieldId="seed-starter-vm">

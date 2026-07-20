@@ -6,6 +6,7 @@ import {
   IdentityForm,
   MetallbForm,
   SeedStarterVmForm,
+  ClusterAsAServiceForm,
   TenantFormMode,
   TenantResource,
   TenantSpecForm,
@@ -41,6 +42,12 @@ export const defaultTenantSpec = (): TenantSpecForm => ({
     enabled: true,
     cluster: 'virtualisation-cluster',
     vmName: '',
+  },
+  clusterAsAService: {
+    hcpNamespace: '',
+    hubCpu: '40',
+    hubMemory: '64Gi',
+    hubPods: '100',
   },
   identity: {
     enabled: false,
@@ -117,6 +124,22 @@ const parseSeedStarterVm = (
   };
 };
 
+const parseClusterAsAService = (
+  raw: Record<string, unknown> | undefined,
+): ClusterAsAServiceForm => {
+  const base = defaultTenantSpec().clusterAsAService;
+  if (!raw) {
+    return { ...base };
+  }
+  const hubRq = (raw.hubResourceQuota ?? {}) as Record<string, unknown>;
+  return {
+    hcpNamespace: str(raw.hcpNamespace),
+    hubCpu: str(hubRq.cpu) || base.hubCpu,
+    hubMemory: str(hubRq.memory) || base.hubMemory,
+    hubPods: str(hubRq.pods) || base.hubPods,
+  };
+};
+
 /** Map a Tenant CR from the API into form state. */
 export function parseTenantResource(tenant: TenantResource): {
   name: string;
@@ -165,6 +188,9 @@ export function parseTenantResource(tenant: TenantResource): {
     seedStarterVm: parseSeedStarterVm(
       s.seedStarterVm as Record<string, unknown> | undefined,
       workloadProfile,
+    ),
+    clusterAsAService: parseClusterAsAService(
+      s.clusterAsAService as Record<string, unknown> | undefined,
     ),
     identity: parseIdentity(s.identity as Record<string, unknown>),
   };
@@ -346,6 +372,20 @@ export function buildTenantResource(params: {
     (tenant.spec as Record<string, unknown>).seedStarterVm = seed;
   } else if (existing?.spec?.seedStarterVm) {
     (tenant.spec as Record<string, unknown>).seedStarterVm = { enabled: false };
+  }
+
+  if (spec.workloadProfile === 'clusters') {
+    const caas: Record<string, unknown> = {
+      hubResourceQuota: {
+        cpu: spec.clusterAsAService.hubCpu.trim() || '40',
+        memory: spec.clusterAsAService.hubMemory.trim() || '64Gi',
+        pods: spec.clusterAsAService.hubPods.trim() || '100',
+      },
+    };
+    if (spec.clusterAsAService.hcpNamespace.trim()) {
+      caas.hcpNamespace = spec.clusterAsAService.hcpNamespace.trim();
+    }
+    (tenant.spec as Record<string, unknown>).clusterAsAService = caas;
   }
 
   if (spec.identity.enabled) {
