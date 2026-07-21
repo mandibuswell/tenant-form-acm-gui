@@ -99,6 +99,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const [networkExpanded, setNetworkExpanded] = React.useState(false);
   const [identityExpanded, setIdentityExpanded] = React.useState(false);
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
+  const [activeJumpSection, setActiveJumpSection] = React.useState('tenant-form-basics');
   const [submitted, setSubmitted] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
@@ -168,6 +169,20 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
     profileChanged && ((!hadContainers && wantsContainers) || (!hadVms && wantsVms));
   const ssoDisabled =
     isEdit && originalIdentityEnabled && !spec.identity.enabled;
+
+  /** In-page jump only — bare #hashes break OpenShift console routing. */
+  const jumpToSection = (sectionId: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveJumpSection(sectionId);
+    if (sectionId === 'tenant-form-identity') setIdentityExpanded(true);
+    if (sectionId === 'tenant-form-networking') setNetworkExpanded(true);
+    if (sectionId === 'tenant-form-advanced') setAdvancedExpanded(true);
+    // Expandables need a tick before the target has height
+    window.requestAnimationFrame(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   const updateSpec = <K extends keyof TenantSpecForm>(key: K, val: TenantSpecForm[K]) =>
     setSpec((prev) => ({ ...prev, [key]: val }));
@@ -389,13 +404,43 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                 expandable={{ default: 'expandable', md: 'nonExpandable' }}
                 toggleAriaLabel="Toggle form section links"
               >
-                <JumpLinksItem href="#tenant-form-basics">Basics</JumpLinksItem>
-                <JumpLinksItem href="#tenant-form-capacity">Capacity</JumpLinksItem>
-                <JumpLinksItem href="#tenant-form-identity">Identity</JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-basics"
+                  isActive={activeJumpSection === 'tenant-form-basics'}
+                  onClick={jumpToSection('tenant-form-basics')}
+                >
+                  Basics
+                </JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-capacity"
+                  isActive={activeJumpSection === 'tenant-form-capacity'}
+                  onClick={jumpToSection('tenant-form-capacity')}
+                >
+                  Capacity
+                </JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-identity"
+                  isActive={activeJumpSection === 'tenant-form-identity'}
+                  onClick={jumpToSection('tenant-form-identity')}
+                >
+                  Identity
+                </JumpLinksItem>
                 {showNetworking && (
-                  <JumpLinksItem href="#tenant-form-networking">Networking</JumpLinksItem>
+                  <JumpLinksItem
+                    href="#tenant-form-networking"
+                    isActive={activeJumpSection === 'tenant-form-networking'}
+                    onClick={jumpToSection('tenant-form-networking')}
+                  >
+                    Networking
+                  </JumpLinksItem>
                 )}
-                <JumpLinksItem href="#tenant-form-advanced">Advanced</JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-advanced"
+                  isActive={activeJumpSection === 'tenant-form-advanced'}
+                  onClick={jumpToSection('tenant-form-advanced')}
+                >
+                  Advanced
+                </JumpLinksItem>
               </JumpLinks>
             </div>
             <div style={{ flex: '1 1 auto', minWidth: 0 }}>
