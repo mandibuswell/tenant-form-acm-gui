@@ -25,7 +25,7 @@ import {
   JumpLinks,
   JumpLinksItem,
 } from '@patternfly/react-core';
-import { PlusCircleIcon, MinusCircleIcon } from '@patternfly/react-icons';
+import { PlusCircleIcon, MinusCircleIcon, EyeIcon, EyeSlashIcon } from '@patternfly/react-icons';
 import { k8sCreate, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
 import { TenantModel } from '../models';
 import { TENANTS_ACM_SEARCH_PATH, TENANTS_LIST_PATH } from '../tenantRoutes';
@@ -104,6 +104,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [identitySecretUnchanged, setIdentitySecretUnchanged] = React.useState(isEdit);
+  const [showSeedPassword, setShowSeedPassword] = React.useState(false);
   const [formReady, setFormReady] = React.useState(!isEdit);
 
   const hydrateKey = isEdit
@@ -1001,13 +1002,27 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                           {spec.identity.seedUsers && (
                             <>
                               <FormGroup label="Seed user password" fieldId="seed-password">
-                                <TextInput
-                                  id="seed-password"
-                                  type="password"
-                                  value={spec.identity.seedPassword}
-                                  onChange={(_e, v) => updateIdentity('seedPassword', v)}
-                                  autoComplete="new-password"
-                                />
+                                <InputGroup>
+                                  <InputGroupItem isFill>
+                                    <TextInput
+                                      id="seed-password"
+                                      type={showSeedPassword ? 'text' : 'password'}
+                                      value={spec.identity.seedPassword}
+                                      onChange={(_e, v) => updateIdentity('seedPassword', v)}
+                                      autoComplete="new-password"
+                                    />
+                                  </InputGroupItem>
+                                  <InputGroupItem>
+                                    <Button
+                                      variant="control"
+                                      aria-label={
+                                        showSeedPassword ? 'Hide password' : 'Show password'
+                                      }
+                                      onClick={() => setShowSeedPassword((prev) => !prev)}
+                                      icon={showSeedPassword ? <EyeSlashIcon /> : <EyeIcon />}
+                                    />
+                                  </InputGroupItem>
+                                </InputGroup>
                               </FormGroup>
                               <FormGroup fieldId="require-password-change">
                                 <input
