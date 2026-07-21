@@ -146,17 +146,18 @@ spec:
                       description: >-
                         ResourceQuota applied to the hub HCP namespace so
                         control-plane pods cannot unbounded-consume the hub.
-                        Defaults applied by policy when omitted.
+                        Defaults sized for one HA hosted control plane
+                        (~5.5 CPU / ~19Gi / ~78 pods plus headroom).
                       properties:
                         cpu:
                           type: string
-                          default: "40"
+                          default: "12"
                         memory:
                           type: string
-                          default: "64Gi"
+                          default: "32Gi"
                         pods:
                           type: string
-                          default: "100"
+                          default: "150"
 
                 # -----------------------------------------------------------
                 # Optional starter VM (hub ManifestWork reconciler)

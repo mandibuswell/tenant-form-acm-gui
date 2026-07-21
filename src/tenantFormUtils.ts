@@ -23,46 +23,139 @@ export const SecretModel = {
   labelPlural: 'Secrets',
 };
 
-export const defaultTenantSpec = (): TenantSpecForm => ({
-  displayName: '',
-  owner: '',
-  workloadNamespace: '',
-  workloadProfile: 'vms',
-  adminGroup: '',
-  userGroup: '',
-  viewerGroup: '',
-  resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
-  vmQuota: { cpu: '80', memory: '320Gi' },
-  limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
-  network: {
-    udnSubnet: DEFAULT_UDN_SUBNET,
-    metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
+/**
+ * Spoke + hub quota defaults keyed by workload profile (form create / profile switch).
+ *
+ * TODO(https://github.com/mandibuswell/tenant-form-acm-gui/issues/8): Load these from
+ * operator config (ConfigMap / Helm values) so platform admins can set hub + VM defaults
+ * per profile without rebuilding the plugin.
+ */
+export const PROFILE_QUOTA_DEFAULTS: Record<
+  WorkloadProfile,
+  {
+    resourceQuota: TenantSpecForm['resourceQuota'];
+    vmQuota: TenantSpecForm['vmQuota'];
+    limitRange: TenantSpecForm['limitRange'];
+    hubCpu: string;
+    hubMemory: string;
+    hubPods: string;
+  }
+> = {
+  vms: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '80', memory: '320Gi' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    // Hub HCP defaults (used when switching to clusters) — sized for one HA HCP
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-  seedStarterVm: {
-    enabled: true,
-    cluster: 'virtualisation-cluster',
-    vmName: '',
+  containers: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '', memory: '' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-  clusterAsAService: {
-    hcpNamespace: '',
-    hubCpu: '40',
-    hubMemory: '64Gi',
-    hubPods: '100',
+  both: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '80', memory: '320Gi' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-  identity: {
-    enabled: false,
-    provider: 'keycloak',
-    clientSecret: '',
-    consoleLoginName: '',
-    oidcIssuer: '',
-    keycloakNamespace: 'keycloak-system',
-    keycloakInstance: 'main',
-    manageRealm: false,
-    seedUsers: false,
-    seedPassword: 'password',
-    requirePasswordChange: false,
+  // CaaS: hub HCP quota only (one HA HCP); spoke/VM constraints optional (blank until set)
+  clusters: {
+    resourceQuota: { cpu: '', memory: '', pods: '', storage: '' },
+    vmQuota: { cpu: '', memory: '' },
+    limitRange: { maxCpu: '', maxMemory: '', maxStorage: '' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-});
+};
+
+/** Apply profile quota defaults when the administrator changes Workload profile. */
+export function applyWorkloadProfileQuotaDefaults(
+  prev: TenantSpecForm,
+  profile: WorkloadProfile,
+): TenantSpecForm {
+  const d = PROFILE_QUOTA_DEFAULTS[profile];
+  return {
+    ...prev,
+    workloadProfile: profile,
+    resourceQuota: { ...d.resourceQuota },
+    vmQuota: { ...d.vmQuota },
+    limitRange: { ...d.limitRange },
+    seedStarterVm: {
+      ...prev.seedStarterVm,
+      enabled: profile === 'vms' || profile === 'both',
+    },
+    clusterAsAService: {
+      ...prev.clusterAsAService,
+      hubCpu: prev.clusterAsAService.hubCpu.trim() || d.hubCpu,
+      hubMemory: prev.clusterAsAService.hubMemory.trim() || d.hubMemory,
+      hubPods: prev.clusterAsAService.hubPods.trim() || d.hubPods,
+    },
+  };
+}
+
+/** Keep only non-empty string fields; omit the object when nothing is set. */
+const compactStringFields = <T extends Record<string, string>>(
+  obj: T,
+): Record<string, string> | undefined => {
+  const out: Record<string, string> = {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v.trim()) out[k] = v.trim();
+  });
+  return Object.keys(out).length ? out : undefined;
+};
+
+export const defaultTenantSpec = (): TenantSpecForm => {
+  const d = PROFILE_QUOTA_DEFAULTS.vms;
+  return {
+    displayName: '',
+    owner: '',
+    workloadNamespace: '',
+    workloadProfile: 'vms',
+    adminGroup: '',
+    userGroup: '',
+    viewerGroup: '',
+    resourceQuota: { ...d.resourceQuota },
+    vmQuota: { ...d.vmQuota },
+    limitRange: { ...d.limitRange },
+    network: {
+      udnSubnet: DEFAULT_UDN_SUBNET,
+      metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
+    },
+    seedStarterVm: {
+      enabled: true,
+      cluster: 'virtualisation-cluster',
+      vmName: '',
+    },
+    clusterAsAService: {
+      hcpNamespace: '',
+      hubCpu: d.hubCpu,
+      hubMemory: d.hubMemory,
+      hubPods: d.hubPods,
+    },
+    identity: {
+      enabled: false,
+      provider: 'keycloak',
+      clientSecret: '',
+      consoleLoginName: '',
+      oidcIssuer: '',
+      keycloakNamespace: 'keycloak-system',
+      keycloakInstance: 'main',
+      manageRealm: false,
+      seedUsers: false,
+      seedPassword: 'password',
+      requirePasswordChange: false,
+    },
+  };
+};
 
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 
@@ -157,6 +250,7 @@ export function parseTenantResource(tenant: TenantResource): {
   const rq = (s.resourceQuota ?? {}) as Record<string, string>;
   const vmq = (s.vmQuota ?? {}) as Record<string, string>;
   const lr = (s.limitRange ?? {}) as Record<string, string>;
+  const qd = PROFILE_QUOTA_DEFAULTS[workloadProfile];
 
   const spec: TenantSpecForm = {
     displayName: str(s.displayName),
@@ -166,20 +260,21 @@ export function parseTenantResource(tenant: TenantResource): {
     adminGroup: str(s.adminGroup),
     userGroup: str(s.userGroup),
     viewerGroup: str(s.viewerGroup),
+    // Prefer values on the CR; fall back to profile defaults (blank for CaaS)
     resourceQuota: {
-      cpu: rq.cpu ?? '86',
-      memory: rq.memory ?? '332Gi',
-      pods: rq.pods ?? '15',
-      storage: rq.storage ?? '2000Gi',
+      cpu: rq.cpu !== undefined ? str(rq.cpu) : qd.resourceQuota.cpu,
+      memory: rq.memory !== undefined ? str(rq.memory) : qd.resourceQuota.memory,
+      pods: rq.pods !== undefined ? str(rq.pods) : qd.resourceQuota.pods,
+      storage: rq.storage !== undefined ? str(rq.storage) : qd.resourceQuota.storage,
     },
     vmQuota: {
-      cpu: vmq.cpu ?? '80',
-      memory: vmq.memory ?? '320Gi',
+      cpu: vmq.cpu !== undefined ? str(vmq.cpu) : qd.vmQuota.cpu,
+      memory: vmq.memory !== undefined ? str(vmq.memory) : qd.vmQuota.memory,
     },
     limitRange: {
-      maxCpu: lr.maxCpu ?? '32',
-      maxMemory: lr.maxMemory ?? '128Gi',
-      maxStorage: lr.maxStorage ?? '1Ti',
+      maxCpu: lr.maxCpu !== undefined ? str(lr.maxCpu) : qd.limitRange.maxCpu,
+      maxMemory: lr.maxMemory !== undefined ? str(lr.maxMemory) : qd.limitRange.maxMemory,
+      maxStorage: lr.maxStorage !== undefined ? str(lr.maxStorage) : qd.limitRange.maxStorage,
     },
     network: {
       udnSubnet: str(network.udnSubnet) || DEFAULT_UDN_SUBNET,
@@ -321,20 +416,25 @@ export function buildTenantResource(params: {
       userGroup: effectiveUserGroup,
       viewerGroup: effectiveViewerGroup,
       workloadProfile: spec.workloadProfile,
-      resourceQuota: { ...spec.resourceQuota },
-      vmQuota: { ...spec.vmQuota },
-      limitRange: { ...spec.limitRange },
     },
   };
 
+  const tenantSpec = tenant.spec as Record<string, unknown>;
+  const resourceQuota = compactStringFields(spec.resourceQuota);
+  if (resourceQuota) tenantSpec.resourceQuota = resourceQuota;
+  const vmQuota = compactStringFields(spec.vmQuota);
+  if (vmQuota) tenantSpec.vmQuota = vmQuota;
+  const limitRange = compactStringFields(spec.limitRange);
+  if (limitRange) tenantSpec.limitRange = limitRange;
+
   if (spec.displayName.trim()) {
-    (tenant.spec as Record<string, unknown>).displayName = spec.displayName.trim();
+    tenantSpec.displayName = spec.displayName.trim();
   }
   if (spec.owner.trim()) {
-    (tenant.spec as Record<string, unknown>).owner = spec.owner.trim();
+    tenantSpec.owner = spec.owner.trim();
   }
   if (spec.workloadNamespace.trim() && spec.workloadNamespace.trim() !== tenantName) {
-    (tenant.spec as Record<string, unknown>).workloadNamespace = spec.workloadNamespace.trim();
+    tenantSpec.workloadNamespace = spec.workloadNamespace.trim();
   }
 
   const network: Record<string, unknown> = {};
@@ -375,17 +475,18 @@ export function buildTenantResource(params: {
   }
 
   if (spec.workloadProfile === 'clusters') {
+    const hub = PROFILE_QUOTA_DEFAULTS.clusters;
     const caas: Record<string, unknown> = {
       hubResourceQuota: {
-        cpu: spec.clusterAsAService.hubCpu.trim() || '40',
-        memory: spec.clusterAsAService.hubMemory.trim() || '64Gi',
-        pods: spec.clusterAsAService.hubPods.trim() || '100',
+        cpu: spec.clusterAsAService.hubCpu.trim() || hub.hubCpu,
+        memory: spec.clusterAsAService.hubMemory.trim() || hub.hubMemory,
+        pods: spec.clusterAsAService.hubPods.trim() || hub.hubPods,
       },
     };
     if (spec.clusterAsAService.hcpNamespace.trim()) {
       caas.hcpNamespace = spec.clusterAsAService.hcpNamespace.trim();
     }
-    (tenant.spec as Record<string, unknown>).clusterAsAService = caas;
+    tenantSpec.clusterAsAService = caas;
   }
 
   if (spec.identity.enabled) {
