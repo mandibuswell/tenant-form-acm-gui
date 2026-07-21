@@ -171,7 +171,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
     isEdit && originalIdentityEnabled && !spec.identity.enabled;
 
   /** In-page jump only — bare #hashes break OpenShift console routing. */
-  const jumpToSection = (sectionId: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const jumpToSection = (sectionId: string) => (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setActiveJumpSection(sectionId);
