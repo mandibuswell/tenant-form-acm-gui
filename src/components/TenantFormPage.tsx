@@ -22,8 +22,10 @@ import {
   Content,
   Spinner,
   FormHelperText,
+  JumpLinks,
+  JumpLinksItem,
 } from '@patternfly/react-core';
-import { PlusCircleIcon, MinusCircleIcon } from '@patternfly/react-icons';
+import { PlusCircleIcon, MinusCircleIcon, EyeIcon, EyeSlashIcon } from '@patternfly/react-icons';
 import { k8sCreate, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
 import { TenantModel } from '../models';
 import { TENANTS_ACM_SEARCH_PATH, TENANTS_LIST_PATH } from '../tenantRoutes';
@@ -39,6 +41,7 @@ import {
   defaultTenantSpec,
   derivedGroups,
   generateClientSecret,
+  applyWorkloadProfileQuotaDefaults,
   parseTenantResource,
   resolveTenantIdentity,
   specField,
@@ -87,7 +90,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const isEdit = mode === 'edit';
 
   const [name, setName] = React.useState('');
-  const [namespace, setNamespace] = React.useState(DEFAULT_NAMESPACE);
   const [spec, setSpec] = React.useState<TenantSpecForm>(() => defaultTenantSpec());
   const [originalWorkloadProfile, setOriginalWorkloadProfile] = React.useState<WorkloadProfile | null>(
     null,
@@ -96,10 +98,12 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const [networkExpanded, setNetworkExpanded] = React.useState(false);
   const [identityExpanded, setIdentityExpanded] = React.useState(false);
   const [advancedExpanded, setAdvancedExpanded] = React.useState(false);
+  const [activeJumpSection, setActiveJumpSection] = React.useState('tenant-form-basics');
   const [submitted, setSubmitted] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [identitySecretUnchanged, setIdentitySecretUnchanged] = React.useState(isEdit);
+  const [showSeedPassword, setShowSeedPassword] = React.useState(false);
   const [formReady, setFormReady] = React.useState(!isEdit);
 
   const hydrateKey = isEdit
@@ -117,7 +121,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
     }
     const parsed = parseTenantResource(existing);
     setName(parsed.name);
-    setNamespace(parsed.namespace);
     setSpec(parsed.spec);
     setOriginalWorkloadProfile(parsed.originalWorkloadProfile);
     setOriginalIdentityEnabled(parsed.originalIdentityEnabled);
@@ -131,7 +134,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
 
   const { tenantName, tenantNamespace, workloadNamespace } = resolveTenantIdentity({
     name,
-    namespace,
+    namespace: DEFAULT_NAMESPACE,
     spec,
     existing,
     initial,
@@ -152,12 +155,33 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const wantsContainers =
     spec.workloadProfile === 'containers' || spec.workloadProfile === 'both';
   const wantsVms = spec.workloadProfile === 'vms' || spec.workloadProfile === 'both';
+  const isCaas = spec.workloadProfile === 'clusters';
+  /** Spoke ResourceQuota — vms, containers, both (not CaaS). */
+  const showSpokeResourceQuota = !isCaas;
+  /** VM AAQ + max VM size — vms / both only. */
+  const showVmQuotas = wantsVms;
+  /** UDN / MetalLB — not used for CaaS hub HCP tenants. */
+  const showNetworking = !isCaas;
   const profileRemovesResources =
     profileChanged && ((hadContainers && !wantsContainers) || (hadVms && !wantsVms));
   const profileAddsResources =
     profileChanged && ((!hadContainers && wantsContainers) || (!hadVms && wantsVms));
   const ssoDisabled =
     isEdit && originalIdentityEnabled && !spec.identity.enabled;
+
+  /** In-page jump only — bare #hashes break OpenShift console routing. */
+  const jumpToSection = (sectionId: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveJumpSection(sectionId);
+    if (sectionId === 'tenant-form-identity') setIdentityExpanded(true);
+    if (sectionId === 'tenant-form-networking') setNetworkExpanded(true);
+    if (sectionId === 'tenant-form-advanced') setAdvancedExpanded(true);
+    // Expandables need a tick before the target has height
+    window.requestAnimationFrame(() => {
+      document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   const updateSpec = <K extends keyof TenantSpecForm>(key: K, val: TenantSpecForm[K]) =>
     setSpec((prev) => ({ ...prev, [key]: val }));
@@ -357,7 +381,70 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
         )}
 
         <Form onSubmit={handleSubmit}>
-          <FormSection title="Tenant Details">
+          <div
+            style={{
+              display: 'flex',
+              gap: '2rem',
+              alignItems: 'flex-start',
+            }}
+          >
+            <div
+              style={{
+                position: 'sticky',
+                top: '1rem',
+                flex: '0 0 11rem',
+                maxWidth: '11rem',
+              }}
+            >
+              <JumpLinks
+                isVertical
+                label="Jump to section"
+                aria-label="Tenant form sections"
+                expandable={{ default: 'expandable', md: 'nonExpandable' }}
+                toggleAriaLabel="Toggle form section links"
+              >
+                <JumpLinksItem
+                  href="#tenant-form-basics"
+                  isActive={activeJumpSection === 'tenant-form-basics'}
+                  onClick={jumpToSection('tenant-form-basics')}
+                >
+                  Basics
+                </JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-capacity"
+                  isActive={activeJumpSection === 'tenant-form-capacity'}
+                  onClick={jumpToSection('tenant-form-capacity')}
+                >
+                  Capacity
+                </JumpLinksItem>
+                <JumpLinksItem
+                  href="#tenant-form-identity"
+                  isActive={activeJumpSection === 'tenant-form-identity'}
+                  onClick={jumpToSection('tenant-form-identity')}
+                >
+                  Identity
+                </JumpLinksItem>
+                {showNetworking && (
+                  <JumpLinksItem
+                    href="#tenant-form-networking"
+                    isActive={activeJumpSection === 'tenant-form-networking'}
+                    onClick={jumpToSection('tenant-form-networking')}
+                  >
+                    Networking
+                  </JumpLinksItem>
+                )}
+                <JumpLinksItem
+                  href="#tenant-form-advanced"
+                  isActive={activeJumpSection === 'tenant-form-advanced'}
+                  onClick={jumpToSection('tenant-form-advanced')}
+                >
+                  Advanced
+                </JumpLinksItem>
+              </JumpLinks>
+            </div>
+            <div style={{ flex: '1 1 auto', minWidth: 0 }}>
+          <FormSection title="Basics" titleElement="h2">
+            <div id="tenant-form-basics" />
             <Grid hasGutter>
               <GridItem span={6}>
                 <FormGroup label="Tenant Name" isRequired fieldId="tenant-name">
@@ -398,11 +485,11 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
               </GridItem>
               <GridItem span={6}>
                 <FormGroup
-                  label="Workload namespace"
+                  label="Namespace for Tenant Resources"
                   fieldId="workload-namespace"
                   labelHelp={helpPopover(
                     'Namespace on managed clusters for this tenant. Fixed after the tenant is created.',
-                    'Workload namespace',
+                    'Namespace for Tenant Resources',
                   )}
                 >
                   <TextInput
@@ -421,8 +508,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}
                 >
                   Managed cluster namespace: <strong>{effectiveWorkloadNamespace || '—'}</strong>
-                  {' '}
-                  (label <code>tenant={tenantName || '…'}</code> on provisioned resources)
                 </Content>
               </GridItem>
               <GridItem span={6}>
@@ -430,7 +515,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   label="Workload profile"
                   fieldId="workload-profile"
                   labelHelp={helpPopover(
-                    'Controls which ACM policies provision resources on capable clusters. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. Narrowing the profile (for example both → vms) does not delete existing resources — remove them manually via fleet search. Widening the profile (for example vms → both) adds new resources on the next policy cycle where cluster capability labels match; the workload namespace name is unchanged.',
+                    'Controls which ACM policies provision resources. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. clusters — Cluster-as-a-Service via Hosted Control Plane (no compute VM quotas). Narrowing the profile does not delete existing resources.',
                     'Workload profile',
                   )}
                 >
@@ -439,19 +524,16 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                     value={spec.workloadProfile}
                     onChange={(_e, v) => {
                       const profile = v as WorkloadProfile;
-                      setSpec((prev) => ({
-                        ...prev,
-                        workloadProfile: profile,
-                        seedStarterVm: {
-                          ...prev.seedStarterVm,
-                          enabled: profile === 'vms' || profile === 'both',
-                        },
-                      }));
+                      setSpec((prev) => applyWorkloadProfileQuotaDefaults(prev, profile));
                     }}
                   >
                     <FormSelectOption value="vms" label="VMs (Fleet Virtualization)" />
                     <FormSelectOption value="containers" label="Containers" />
                     <FormSelectOption value="both" label="Both" />
+                    <FormSelectOption
+                      value="clusters"
+                      label="Clusters (CaaS via Hosted Control Plane)"
+                    />
                   </FormSelect>
                 </FormGroup>
               </GridItem>
@@ -471,254 +553,330 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   />
                 </FormGroup>
               </GridItem>
-              {wantsVms && (
-                <GridItem span={12}>
-                  <FormGroup fieldId="seed-starter-vm">
-                    <input
-                      id="seed-starter-vm"
-                      type="checkbox"
-                      checked={spec.seedStarterVm.enabled}
-                      onChange={(e) =>
-                        setSpec((prev) => ({
-                          ...prev,
-                          seedStarterVm: { ...prev.seedStarterVm, enabled: e.target.checked },
-                        }))
-                      }
-                    />
-                    {' '}
-                    <label htmlFor="seed-starter-vm">
-                      Provision starter VM automatically
-                    </label>
-                    <Content
-                      component="p"
-                      style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)', marginTop: '0.25rem' }}
-                    >
-                      Creates a RHEL9 starter VM on the virt spoke via hub ManifestWork
-                      (default on for VM tenants). Login: <code>cloud-user</code> / <code>redhat</code>.
-                    </Content>
-                  </FormGroup>
-                  {spec.seedStarterVm.enabled && (
-                    <Grid hasGutter style={{ marginTop: '0.75rem' }}>
-                      <GridItem span={6}>
-                        <FormGroup
-                          label="Target cluster"
-                          fieldId="seed-vm-cluster"
-                          labelHelp={helpPopover(
-                            'Managed cluster for the ManifestWork. Defaults to virtualisation-cluster.',
-                            'Target cluster',
-                          )}
-                        >
-                          <TextInput
-                            id="seed-vm-cluster"
-                            value={spec.seedStarterVm.cluster}
-                            onChange={(_e, v) =>
-                              setSpec((prev) => ({
-                                ...prev,
-                                seedStarterVm: { ...prev.seedStarterVm, cluster: v },
-                              }))
-                            }
-                            placeholder="virtualisation-cluster"
-                          />
-                        </FormGroup>
-                      </GridItem>
-                      <GridItem span={6}>
-                        <FormGroup
-                          label="VM name"
-                          fieldId="seed-vm-name"
-                          labelHelp={helpPopover(
-                            'Defaults to {tenant}-starter when left blank.',
-                            'VM name',
-                          )}
-                        >
-                          <TextInput
-                            id="seed-vm-name"
-                            value={spec.seedStarterVm.vmName}
-                            onChange={(_e, v) =>
-                              setSpec((prev) => ({
-                                ...prev,
-                                seedStarterVm: { ...prev.seedStarterVm, vmName: v },
-                              }))
-                            }
-                            placeholder={tenantName ? `${tenantName}-starter` : 'tenant-starter'}
-                          />
-                        </FormGroup>
-                      </GridItem>
-                    </Grid>
-                  )}
-                </GridItem>
-              )}
             </Grid>
           </FormSection>
 
-          <FormSection title="Tenant Resource Quotas" titleElement="h2">
-            {sectionDescription(
-              'Total resource budget for this tenant — VMs, services, migration pods, and all other workloads.',
-            )}
-            <Grid hasGutter>
-              <GridItem span={6}>
-                <FormGroup label="CPU" fieldId="rq-cpu">
-                  <TextInput
-                    id="rq-cpu"
-                    value={spec.resourceQuota.cpu}
-                    onChange={(_e, v) => updateQuota('cpu', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={6}>
-                <FormGroup label="Memory" fieldId="rq-memory">
-                  <TextInput
-                    id="rq-memory"
-                    value={spec.resourceQuota.memory}
-                    onChange={(_e, v) => updateQuota('memory', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={6}>
-                <FormGroup label="Pods" fieldId="rq-pods">
-                  <TextInput
-                    id="rq-pods"
-                    value={spec.resourceQuota.pods}
-                    onChange={(_e, v) => updateQuota('pods', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={6}>
-                <FormGroup label="Storage" fieldId="rq-storage">
-                  <TextInput
-                    id="rq-storage"
-                    value={spec.resourceQuota.storage}
-                    onChange={(_e, v) => updateQuota('storage', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-            </Grid>
-          </FormSection>
-
-          <FormSection title="Virtual Machine Quota" titleElement="h2">
-            {sectionDescription(
-              'Combined VM budget — a subset of the tenant quota above, reserving headroom for non-VM pods.',
-            )}
-            <Grid hasGutter>
-              <GridItem span={6}>
-                <FormGroup label="CPU" fieldId="vm-cpu">
-                  <TextInput
-                    id="vm-cpu"
-                    value={spec.vmQuota.cpu}
-                    onChange={(_e, v) => updateVmQuota('cpu', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={6}>
-                <FormGroup label="Memory" fieldId="vm-memory">
-                  <TextInput
-                    id="vm-memory"
-                    value={spec.vmQuota.memory}
-                    onChange={(_e, v) => updateVmQuota('memory', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-            </Grid>
-          </FormSection>
-
-          <FormSection title="Maximum Virtual Machine Size" titleElement="h2">
-            {sectionDescription('Largest single VM permitted in this tenant.')}
-            <Grid hasGutter>
-              <GridItem span={4}>
-                <FormGroup label="CPU Limit" fieldId="lr-cpu">
-                  <TextInput
-                    id="lr-cpu"
-                    value={spec.limitRange.maxCpu}
-                    onChange={(_e, v) => updateLimit('maxCpu', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={4}>
-                <FormGroup label="Memory Limit" fieldId="lr-memory">
-                  <TextInput
-                    id="lr-memory"
-                    value={spec.limitRange.maxMemory}
-                    onChange={(_e, v) => updateLimit('maxMemory', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-              <GridItem span={4}>
-                <FormGroup label="Storage Limit" fieldId="lr-storage">
-                  <TextInput
-                    id="lr-storage"
-                    value={spec.limitRange.maxStorage}
-                    onChange={(_e, v) => updateLimit('maxStorage', v)}
-                  />
-                </FormGroup>
-              </GridItem>
-            </Grid>
-          </FormSection>
-
-          <ExpandableSection
-            toggleText="Networking"
-            isExpanded={networkExpanded}
-            onToggle={(_e, expanded) => setNetworkExpanded(expanded)}
-          >
-            <FormSection title="Isolated Private Network">
-              <FormGroup label="Network CIDR" fieldId="udn-subnet">
-                <TextInput
-                  id="udn-subnet"
-                  placeholder="10.128.0.0/16"
-                  value={spec.network.udnSubnet}
-                  onChange={(_e, v) => updateNetwork('udnSubnet', v)}
-                />
-                <FormHelperText>
-                  Defaults to <strong>10.128.0.0/16</strong> if left empty. The same CIDR across
-                  tenants is valid — each UDN is a fully isolated network.
-                </FormHelperText>
-              </FormGroup>
-            </FormSection>
-            <FormSection title="Service Provider BGP Peering">
-              <Grid hasGutter>
-                <GridItem span={6}>
-                  <FormGroup label="Peer Address" fieldId="peer-address">
-                    <TextInput
-                      id="peer-address"
-                      placeholder="e.g. 192.168.1.1"
-                      value={spec.network.metallb.peerAddress}
-                      onChange={(_e, v) => updateMetallb('peerAddress', v)}
-                    />
-                  </FormGroup>
-                </GridItem>
-              </Grid>
-              <FormGroup label="Public IP Ranges" fieldId="addresses">
-                {spec.network.metallb.addresses.map((addr, idx) => (
-                  <InputGroup key={idx} style={{ marginBottom: '0.5rem' }}>
-                    <InputGroupItem isFill>
+          <FormSection title="Capacity" titleElement="h2">
+            <div id="tenant-form-capacity" />
+            {isCaas && (
+              <>
+                <Content
+                  component="p"
+                  style={{
+                    marginTop: 0,
+                    marginBottom: '0.5rem',
+                    lineHeight: 1.4,
+                    color: 'var(--pf-t--global--text--color--subtle)',
+                  }}
+                >
+                  Resource quota for the control plane of the CaaS which runs on the hub cluster.
+                  <br />
+                  Compute VM quotas are not required.
+                  <br />
+                  Control Plane namespace:{' '}
+                  <strong>{tenantName ? `${tenantName}-hcp` : '{tenant}-hcp'}</strong>
+                </Content>
+                <Grid hasGutter>
+                  <GridItem span={4}>
+                    <FormGroup label="Hub CPU" fieldId="caas-hub-cpu">
                       <TextInput
-                        id={`address-${idx}`}
-                        placeholder="e.g. 203.0.113.0/28"
-                        value={addr}
-                        onChange={(_e, v) => updateAddress(idx, v)}
+                        id="caas-hub-cpu"
+                        value={spec.clusterAsAService.hubCpu}
+                        onChange={(_e, v) =>
+                          setSpec((prev) => ({
+                            ...prev,
+                            clusterAsAService: { ...prev.clusterAsAService, hubCpu: v },
+                          }))
+                        }
                       />
-                    </InputGroupItem>
-                    <InputGroupItem>
-                      <Button
-                        variant="plain"
-                        aria-label="Remove address"
-                        onClick={() => removeAddress(idx)}
-                      >
-                        <MinusCircleIcon />
-                      </Button>
-                    </InputGroupItem>
-                  </InputGroup>
-                ))}
-                <Button variant="link" icon={<PlusCircleIcon />} onClick={addAddress}>
-                  Add IP range
-                </Button>
-              </FormGroup>
-            </FormSection>
-          </ExpandableSection>
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={4}>
+                    <FormGroup label="Hub memory" fieldId="caas-hub-mem">
+                      <TextInput
+                        id="caas-hub-mem"
+                        value={spec.clusterAsAService.hubMemory}
+                        onChange={(_e, v) =>
+                          setSpec((prev) => ({
+                            ...prev,
+                            clusterAsAService: { ...prev.clusterAsAService, hubMemory: v },
+                          }))
+                        }
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={4}>
+                    <FormGroup label="Hub pods" fieldId="caas-hub-pods">
+                      <TextInput
+                        id="caas-hub-pods"
+                        value={spec.clusterAsAService.hubPods}
+                        onChange={(_e, v) =>
+                          setSpec((prev) => ({
+                            ...prev,
+                            clusterAsAService: { ...prev.clusterAsAService, hubPods: v },
+                          }))
+                        }
+                      />
+                    </FormGroup>
+                  </GridItem>
+                </Grid>
+              </>
+            )}
 
+            {wantsVms && (
+              <div style={{ marginTop: isCaas ? '1.5rem' : undefined }}>
+                <FormGroup fieldId="seed-starter-vm">
+                  <input
+                    id="seed-starter-vm"
+                    type="checkbox"
+                    checked={spec.seedStarterVm.enabled}
+                    onChange={(e) =>
+                      setSpec((prev) => ({
+                        ...prev,
+                        seedStarterVm: { ...prev.seedStarterVm, enabled: e.target.checked },
+                      }))
+                    }
+                  />
+                  {' '}
+                  <label htmlFor="seed-starter-vm">Provision starter VM automatically</label>
+                  <Content
+                    component="p"
+                    style={{
+                      fontSize: '0.875rem',
+                      color: 'var(--pf-t--global--text--color--subtle)',
+                      marginTop: '0.25rem',
+                    }}
+                  >
+                    Creates a RHEL9 starter VM on the virt spoke via hub ManifestWork
+                    (default on for VM tenants). Login: <code>cloud-user</code> / <code>redhat</code>.
+                  </Content>
+                </FormGroup>
+                {spec.seedStarterVm.enabled && (
+                  <Grid hasGutter style={{ marginTop: '0.75rem' }}>
+                    <GridItem span={6}>
+                      <FormGroup
+                        label="Target cluster"
+                        fieldId="seed-vm-cluster"
+                        labelHelp={helpPopover(
+                          'Managed cluster for the ManifestWork. Defaults to virtualisation-cluster.',
+                          'Target cluster',
+                        )}
+                      >
+                        <TextInput
+                          id="seed-vm-cluster"
+                          value={spec.seedStarterVm.cluster}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              seedStarterVm: { ...prev.seedStarterVm, cluster: v },
+                            }))
+                          }
+                          placeholder="virtualisation-cluster"
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={6}>
+                      <FormGroup
+                        label="VM name"
+                        fieldId="seed-vm-name"
+                        labelHelp={helpPopover(
+                          'Defaults to {tenant}-starter when left blank.',
+                          'VM name',
+                        )}
+                      >
+                        <TextInput
+                          id="seed-vm-name"
+                          value={spec.seedStarterVm.vmName}
+                          onChange={(_e, v) =>
+                            setSpec((prev) => ({
+                              ...prev,
+                              seedStarterVm: { ...prev.seedStarterVm, vmName: v },
+                            }))
+                          }
+                          placeholder={tenantName ? `${tenantName}-starter` : 'tenant-starter'}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                  </Grid>
+                )}
+              </div>
+            )}
+
+            {showSpokeResourceQuota && (
+              <div style={{ marginTop: wantsVms || isCaas ? '1.5rem' : undefined }}>
+                <Title headingLevel="h3" style={{ marginBottom: '0.5rem' }}>
+                  Tenant Resource Quotas
+                </Title>
+                {sectionDescription(
+                  'Total resource budget for this tenant — VMs, services, migration pods, and all other workloads.',
+                )}
+                <Grid hasGutter>
+                  <GridItem span={6}>
+                    <FormGroup label="CPU" fieldId="rq-cpu">
+                      <TextInput
+                        id="rq-cpu"
+                        value={spec.resourceQuota.cpu}
+                        onChange={(_e, v) => updateQuota('cpu', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={6}>
+                    <FormGroup label="Memory" fieldId="rq-memory">
+                      <TextInput
+                        id="rq-memory"
+                        value={spec.resourceQuota.memory}
+                        onChange={(_e, v) => updateQuota('memory', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={6}>
+                    <FormGroup label="Pods" fieldId="rq-pods">
+                      <TextInput
+                        id="rq-pods"
+                        value={spec.resourceQuota.pods}
+                        onChange={(_e, v) => updateQuota('pods', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={6}>
+                    <FormGroup label="Storage" fieldId="rq-storage">
+                      <TextInput
+                        id="rq-storage"
+                        value={spec.resourceQuota.storage}
+                        onChange={(_e, v) => updateQuota('storage', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                </Grid>
+              </div>
+            )}
+
+            {showVmQuotas && (
+              <>
+                <div style={{ marginTop: '1.5rem' }}>
+                  <Title headingLevel="h3" style={{ marginBottom: '0.5rem' }}>
+                    Virtual Machine Quota
+                  </Title>
+                  {sectionDescription(
+                    'Combined VM budget — a subset of the tenant quota above, reserving headroom for non-VM pods.',
+                  )}
+                  <Grid hasGutter>
+                    <GridItem span={6}>
+                      <FormGroup label="CPU" fieldId="vm-cpu">
+                        <TextInput
+                          id="vm-cpu"
+                          value={spec.vmQuota.cpu}
+                          onChange={(_e, v) => updateVmQuota('cpu', v)}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={6}>
+                      <FormGroup label="Memory" fieldId="vm-memory">
+                        <TextInput
+                          id="vm-memory"
+                          value={spec.vmQuota.memory}
+                          onChange={(_e, v) => updateVmQuota('memory', v)}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                  </Grid>
+                </div>
+                <div style={{ marginTop: '1.5rem' }}>
+                  <Title headingLevel="h3" style={{ marginBottom: '0.5rem' }}>
+                    Maximum Virtual Machine Size
+                  </Title>
+                  {sectionDescription('Largest single VM permitted in this tenant.')}
+                  <Grid hasGutter>
+                    <GridItem span={4}>
+                      <FormGroup label="CPU Limit" fieldId="lr-cpu">
+                        <TextInput
+                          id="lr-cpu"
+                          value={spec.limitRange.maxCpu}
+                          onChange={(_e, v) => updateLimit('maxCpu', v)}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={4}>
+                      <FormGroup label="Memory Limit" fieldId="lr-memory">
+                        <TextInput
+                          id="lr-memory"
+                          value={spec.limitRange.maxMemory}
+                          onChange={(_e, v) => updateLimit('maxMemory', v)}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                    <GridItem span={4}>
+                      <FormGroup label="Storage Limit" fieldId="lr-storage">
+                        <TextInput
+                          id="lr-storage"
+                          value={spec.limitRange.maxStorage}
+                          onChange={(_e, v) => updateLimit('maxStorage', v)}
+                        />
+                      </FormGroup>
+                    </GridItem>
+                  </Grid>
+                </div>
+              </>
+            )}
+
+            {wantsContainers && !wantsVms && (
+              <div style={{ marginTop: '1.5rem' }}>
+                <Title headingLevel="h3" style={{ marginBottom: '0.5rem' }}>
+                  Container size limits
+                </Title>
+                {sectionDescription('Per-object ceilings applied via LimitRange in the tenant namespace.')}
+                <Grid hasGutter>
+                  <GridItem span={4}>
+                    <FormGroup label="CPU Limit" fieldId="lr-cpu-containers">
+                      <TextInput
+                        id="lr-cpu-containers"
+                        value={spec.limitRange.maxCpu}
+                        onChange={(_e, v) => updateLimit('maxCpu', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={4}>
+                    <FormGroup label="Memory Limit" fieldId="lr-mem-containers">
+                      <TextInput
+                        id="lr-mem-containers"
+                        value={spec.limitRange.maxMemory}
+                        onChange={(_e, v) => updateLimit('maxMemory', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                  <GridItem span={4}>
+                    <FormGroup label="Storage Limit" fieldId="lr-storage-containers">
+                      <TextInput
+                        id="lr-storage-containers"
+                        value={spec.limitRange.maxStorage}
+                        onChange={(_e, v) => updateLimit('maxStorage', v)}
+                      />
+                    </FormGroup>
+                  </GridItem>
+                </Grid>
+              </div>
+            )}
+          </FormSection>
+
+          <div id="tenant-form-identity">
           <ExpandableSection
-            toggleText="Console login (optional)"
+            toggleText={
+              isCaas ? 'Identity (configure after CaaS)' : 'Identity (console SSO)'
+            }
             isExpanded={identityExpanded}
             onToggle={(_e, expanded) => setIdentityExpanded(expanded)}
           >
+            {isCaas ? (
+              <Alert
+                variant="info"
+                isInline
+                title="Configure identity after the tenant CaaS is created"
+              >
+                CaaS tenants do not register an identity provider on the management console.
+                Create the CaaS first, then use Edit Tenant once the Hosted Cluster is Available
+                to add tenant SSO for this cluster as required.
+              </Alert>
+            ) : (
             <FormSection title="OpenShift OAuth identity provider">
               <FormGroup fieldId="identity-enabled">
                 <input
@@ -742,7 +900,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                         }
                       >
                         <option value="keycloak">Keycloak (platform-managed realm)</option>
-                        <option value="oidc">External OIDC (Azure, Okta, …)</option>
+                        <option value="oidc">External OIDC (Azure, Okta, …) *not yet supported</option>
                       </select>
                     </FormGroup>
                   </GridItem>
@@ -840,13 +998,27 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                           {spec.identity.seedUsers && (
                             <>
                               <FormGroup label="Seed user password" fieldId="seed-password">
-                                <TextInput
-                                  id="seed-password"
-                                  type="password"
-                                  value={spec.identity.seedPassword}
-                                  onChange={(_e, v) => updateIdentity('seedPassword', v)}
-                                  autoComplete="new-password"
-                                />
+                                <InputGroup>
+                                  <InputGroupItem isFill>
+                                    <TextInput
+                                      id="seed-password"
+                                      type={showSeedPassword ? 'text' : 'password'}
+                                      value={spec.identity.seedPassword}
+                                      onChange={(_e, v) => updateIdentity('seedPassword', v)}
+                                      autoComplete="new-password"
+                                    />
+                                  </InputGroupItem>
+                                  <InputGroupItem>
+                                    <Button
+                                      variant="control"
+                                      aria-label={
+                                        showSeedPassword ? 'Hide password' : 'Show password'
+                                      }
+                                      onClick={() => setShowSeedPassword((prev) => !prev)}
+                                      icon={showSeedPassword ? <EyeSlashIcon /> : <EyeIcon />}
+                                    />
+                                  </InputGroupItem>
+                                </InputGroup>
                               </FormGroup>
                               <FormGroup fieldId="require-password-change">
                                 <input
@@ -885,29 +1057,81 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                 </Grid>
               )}
             </FormSection>
+            )}
           </ExpandableSection>
+          </div>
 
+          {showNetworking && (
+          <div id="tenant-form-networking">
+          <ExpandableSection
+            toggleText="Networking"
+            isExpanded={networkExpanded}
+            onToggle={(_e, expanded) => setNetworkExpanded(expanded)}
+          >
+            <FormSection title="Isolated Private Network">
+              <FormGroup label="Network CIDR" fieldId="udn-subnet">
+                <TextInput
+                  id="udn-subnet"
+                  placeholder="10.128.0.0/16"
+                  value={spec.network.udnSubnet}
+                  onChange={(_e, v) => updateNetwork('udnSubnet', v)}
+                />
+                <FormHelperText>
+                  Defaults to <strong>10.128.0.0/16</strong> if left empty. The same CIDR across
+                  tenants is valid — each UDN is a fully isolated network.
+                </FormHelperText>
+              </FormGroup>
+            </FormSection>
+            <FormSection title="Service Provider BGP Peering">
+              <Grid hasGutter>
+                <GridItem span={6}>
+                  <FormGroup label="Peer Address" fieldId="peer-address">
+                    <TextInput
+                      id="peer-address"
+                      placeholder="e.g. 192.168.1.1"
+                      value={spec.network.metallb.peerAddress}
+                      onChange={(_e, v) => updateMetallb('peerAddress', v)}
+                    />
+                  </FormGroup>
+                </GridItem>
+              </Grid>
+              <FormGroup label="Public IP Ranges" fieldId="addresses">
+                {spec.network.metallb.addresses.map((addr, idx) => (
+                  <InputGroup key={idx} style={{ marginBottom: '0.5rem' }}>
+                    <InputGroupItem isFill>
+                      <TextInput
+                        id={`address-${idx}`}
+                        placeholder="e.g. 203.0.113.0/28"
+                        value={addr}
+                        onChange={(_e, v) => updateAddress(idx, v)}
+                      />
+                    </InputGroupItem>
+                    <InputGroupItem>
+                      <Button
+                        variant="plain"
+                        aria-label="Remove address"
+                        onClick={() => removeAddress(idx)}
+                      >
+                        <MinusCircleIcon />
+                      </Button>
+                    </InputGroupItem>
+                  </InputGroup>
+                ))}
+                <Button variant="link" icon={<PlusCircleIcon />} onClick={addAddress}>
+                  Add IP range
+                </Button>
+              </FormGroup>
+            </FormSection>
+          </ExpandableSection>
+          </div>
+          )}
+
+          <div id="tenant-form-advanced">
           <ExpandableSection
             toggleText="Advanced Settings"
             isExpanded={advancedExpanded}
             onToggle={(_e, expanded) => setAdvancedExpanded(expanded)}
           >
-            <FormSection title="Cluster Set Management">
-              <Grid hasGutter>
-                <GridItem span={6}>
-                  <FormGroup label="Cluster Groups Namespace" fieldId="tenant-namespace">
-                    <TextInput
-                      id="tenant-namespace"
-                      value={isEdit ? effectiveNamespace : namespace}
-                      placeholder={DEFAULT_NAMESPACE}
-                      onChange={(_e, v) => setNamespace(v)}
-                      readOnlyVariant={isEdit ? 'default' : undefined}
-                      readOnly={isEdit}
-                    />
-                  </FormGroup>
-                </GridItem>
-              </Grid>
-            </FormSection>
             <FormSection title="Access Groups">
               <Grid hasGutter>
                 <GridItem span={6}>
@@ -942,6 +1166,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                 </GridItem>
               </Grid>
             </FormSection>
+            {showNetworking && (
             <FormSection title="BGP Advanced">
               <Grid hasGutter>
                 <GridItem span={4}>
@@ -958,7 +1183,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   <FormGroup label="Cluster ASN" fieldId="my-asn">
                     <TextInput
                       id="my-asn"
-                      type="number"
                       value={spec.network.metallb.myASN}
                       onChange={(_e, v) => updateMetallb('myASN', v)}
                     />
@@ -968,7 +1192,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   <FormGroup label="Peer ASN" fieldId="peer-asn">
                     <TextInput
                       id="peer-asn"
-                      type="number"
                       value={spec.network.metallb.peerASN}
                       onChange={(_e, v) => updateMetallb('peerASN', v)}
                     />
@@ -976,7 +1199,9 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                 </GridItem>
               </Grid>
             </FormSection>
+            )}
           </ExpandableSection>
+          </div>
 
           <ActionGroup>
             <Button type="submit" variant="primary" isLoading={loading} isDisabled={loading}>
@@ -986,7 +1211,10 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
               Cancel
             </Button>
           </ActionGroup>
+            </div>
+          </div>
         </Form>
+
       </PageSection>
       )}
     </>

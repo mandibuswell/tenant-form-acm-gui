@@ -25,13 +25,20 @@ export interface IdentityForm {
   requirePasswordChange: boolean;
 }
 
-export type WorkloadProfile = 'vms' | 'containers' | 'both';
+export type WorkloadProfile = 'vms' | 'containers' | 'both' | 'clusters';
 
 export interface SeedStarterVmForm {
   /** Default true for vms/both — set false to opt out */
   enabled: boolean;
   cluster: string;
   vmName: string;
+}
+
+export interface ClusterAsAServiceForm {
+  hcpNamespace: string;
+  hubCpu: string;
+  hubMemory: string;
+  hubPods: string;
 }
 
 export interface TenantSpecForm {
@@ -47,6 +54,7 @@ export interface TenantSpecForm {
   limitRange: { maxCpu: string; maxMemory: string; maxStorage: string };
   network: { udnSubnet: string; metallb: MetallbForm };
   seedStarterVm: SeedStarterVmForm;
+  clusterAsAService: ClusterAsAServiceForm;
   identity: IdentityForm;
 }
 

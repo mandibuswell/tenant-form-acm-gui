@@ -1,233 +1,182 @@
 # Tenant Management — OpenShift Console Plugin
 
-An OpenShift Dynamic Console Plugin that adds a **Create Tenant** form to the
-ACM Fleet Management console. The form is schema-driven from the
-`tenants.dusty-seahorse.io` CRD and built entirely with PatternFly components —
-no custom HTML or CSS.
+An OpenShift Dynamic Console Plugin for **listing, creating, editing, and deleting**
+`Tenant` custom resources (`tenants.dusty-seahorse.io`) from the ACM console.
+The UI is PatternFly-based and drives ACM policy from Tenant CRs in the hub
+`tenancies` namespace.
 
-The form is designed to be customer-friendly rather than infrastructure-focused.
-Kubernetes concepts like namespaces, RBAC groups, and BGP ASNs are hidden behind
-smart defaults and an Advanced Settings panel, so operators can provision a
-tenant by simply entering a name and adjusting resource budgets.
+Operators can provision a tenant with a name and workload profile; RBAC groups,
+control-plane namespaces, and similar values use smart defaults. Jump links and
+progressive disclosure keep VMs, containers, and CaaS forms focused.
+
+Companion policies live in
+[tenancy-by-acm-policy](https://github.com/mandibuswell/tenancy-by-acm-policy).
 
 ## Prerequisites
 
-| Requirement        | Version |
-| ------------------ | ------- |
-| OpenShift cluster  | 4.14+   |
-| ACM hub            | 2.9+    |
-| `oc` CLI           | 4.14+   |
-| Node.js            | 22+     |
-| Podman or Docker   | latest  |
+| Requirement       | Version |
+| ----------------- | ------- |
+| OpenShift cluster | 4.14+   |
+| ACM hub           | 2.9+    |
+| `oc` CLI          | 4.14+   |
+| Node.js           | 22+     |
+| Podman or Docker  | optional (on-cluster build does not need local containers) |
 
-The Tenant CRD must be installed on the cluster before the form can create
-resources:
+The Tenant CRD must be installed before create/edit can succeed:
 
 ```bash
-oc apply -f tenant-crd.yaml
+oc apply -f deployment/01-tenant-crd.yaml
+# or: oc apply -f tenant-crd.yaml
 ```
 
-## Form Overview
+## Console routes
 
-After deployment the **Create Tenant** link appears in the **Fleet Management
-(All Clusters)** perspective sidebar in ACM. The form is accessible directly at
-`https://<console-url>/tenant-create`.
+After the plugin is enabled, **Fleet Management → Tenants** appears in the ACM
+perspective.
 
-### Smart Defaults
+| Path | Purpose |
+| ---- | ------- |
+| `/tenants` | Hub tenant list (search, create, profile-aware actions) |
+| `/tenants/create` | Create Tenant form |
+| `/tenants/edit/:name` | Edit Tenant (CR always in `tenancies`) |
+| `/tenants/edit/:ns/:name` | Edit with explicit namespace (legacy shape) |
 
-Several fields are auto-derived from the **Tenant Name** as the user types:
+Legacy redirects still work: `/tenant-create`, `/tenant-edit/ns/:ns/:name`.
 
-| Field | Default value | Where to override |
-| ----- | ------------- | ----------------- |
-| Namespace | `tenancies` | Advanced Settings → Cluster Set Management |
-| Admin Group | `{name}-tenant-admin` | Advanced Settings → Access Groups |
-| User Group | `{name}-tenant-user` | Advanced Settings → Access Groups |
-| Viewer Group | `{name}-tenant-viewer` | Advanced Settings → Access Groups |
-| VRF | `{name}-vrf` | Advanced Settings → BGP Advanced |
-| Cluster ASN | `64500` | Advanced Settings → BGP Advanced |
+Hub vs fleet discovery:
 
-If left blank the derived values are used automatically at submission — the user
-only needs to fill in a tenant name to get sensible defaults for the entire form.
+| View | Scope | Editable here |
+| ---- | ----- | ------------- |
+| **Tenants** list | Hub `tenancies` | Yes |
+| **Fleet-wide search** | All managed clusters (`kind:Tenant`) | No — read-only |
 
-### Form Sections
+## Tenants list
 
-| Section | Description |
-| ------- | ----------- |
-| **Tenant Details** | Name, display name, and owner contact. |
-| **Tenant Resource Quotas** | Total resource budget (CPU, memory, pods, storage) covering all workloads in the tenant. |
-| **Virtual Machine Quota** | Subset of the tenant quota reserved for VMs — limits how much of the total budget VMs can consume, leaving headroom for migration pods and services. |
-| **Maximum Virtual Machine Size** | Largest single VM that can be created (CPU, memory, storage per VM). |
-| **Networking** *(collapsed)* | Isolated private network CIDR and Service Provider BGP peering for public IP / ingress / egress. |
-| **Advanced Settings** *(collapsed)* | Cluster Groups namespace, RBAC group overrides, VRF, and ASN overrides. |
+Each row has an **Actions** menu shaped by **workload profile**:
 
-## Local Development
+| Profile | Actions |
+| ------- | ------- |
+| **VMs** | Edit, List VMs, Delete |
+| **Containers** | Edit, List Workloads, Delete |
+| **Both** | Edit, List VMs, List Workloads, Delete |
+| **CaaS** | Edit, List CaaS, Delete |
+
+- **List VMs** — ACM search: `VirtualMachine` in the tenant workload namespace (all clusters)
+- **List CaaS** — managed clusters filtered by `tenant=<name>`
+- **List Workloads** — ACM search for common workloads in the tenant namespace
+- **Delete** — deletes the hub Tenant CR (policy cleanup follows; some hub RBAC/themes may need manual removal)
+
+## Create / Edit form
+
+Shared form (`TenantFormPage`) with jump links: **Basics**, **Capacity**,
+**Identity**, **Networking** (when applicable), **Advanced**.
+
+### Workload profiles
+
+| Profile | What policies provision |
+| ------- | ----------------------- |
+| **VMs (Fleet Virtualization)** | Spoke VM placement (AAQ, KubeVirt RBAC), optional starter VM |
+| **Containers** | Spoke ResourceQuota / LimitRange (no AAQ) |
+| **Both** | VM + container policy sets |
+| **Clusters (CaaS via Hosted Control Plane)** | Hub control-plane namespace `{tenant}-hcp` + hub ResourceQuota; no spoke VM quotas |
+
+Narrowing a profile does **not** delete previously provisioned resources.
+Widening adds resources on the next policy cycle on capable clusters.
+
+### Form sections (by profile)
+
+| Section | VMs / Both | Containers | CaaS |
+| ------- | ---------- | ---------- | ---- |
+| **Basics** | Name, display name, namespace for tenant resources, profile, owner | same | same |
+| **Capacity** | ResourceQuota, VM quota, max VM size; optional starter VM | ResourceQuota + LimitRange | Hub control-plane CPU / memory / pods only (`{tenant}-hcp` is fixed) |
+| **Identity** | Optional hub console SSO (Keycloak realm / seed users; External OIDC marked not yet supported) | same | Instruction only — configure guest SSO **after** the Hosted Cluster exists (no hub IdP at create) |
+| **Networking** | UDN CIDR + MetalLB / BGP | same | Hidden |
+| **Advanced** | Access group overrides; BGP advanced (when networking shown) | Access groups | Access groups |
+
+Tenant CRs always live in **`tenancies`** (not form-editable). Workload namespace
+defaults to the tenant name and is locked after create.
+
+### Smart defaults
+
+| Field | Default | Override |
+| ----- | ------- | -------- |
+| Tenant CR namespace | `tenancies` | — (fixed) |
+| Namespace for tenant resources | `{tenant name}` | Basics (create only) |
+| Admin / User / Viewer groups | `{name}-tenant-admin` / `-user` / `-viewer` | Advanced → Access Groups |
+| UDN CIDR | `10.128.0.0/16` | Networking |
+| VRF | `{name}-vrf` | Advanced → BGP |
+| Cluster ASN | `64500` | Advanced → BGP |
+| CaaS control-plane namespace | `{tenant}-hcp` | — (fixed; policy default) |
+| CaaS hub quota | 12 CPU / 32Gi / 150 pods | Capacity (CaaS) |
+
+Blank derived fields are filled at submit.
+
+More edit behaviour notes: [`docs/EDIT-TENANT.md`](docs/EDIT-TENANT.md).
+
+## Local development
 
 ```bash
-# Install dependencies
 npm install
-
-# Start the webpack dev server on port 9001
-npm start
+npm start   # webpack-dev-server on port 9001
 ```
 
-To connect the dev server to a running OpenShift console, use the
-[bridge](https://github.com/openshift/console) with plugin proxy:
+Proxy into a running OpenShift console with
+[bridge](https://github.com/openshift/console):
 
 ```bash
-./bin/bridge \
-  --plugins="tenant-form-acm-gui=http://localhost:9001"
+./bin/bridge --plugins="tenant-form-acm-gui=http://localhost:9001"
 ```
 
-Then open the console at `https://localhost:9000/tenant-create`.
+Then open `https://localhost:9000/tenants`.
 
 ## Build
 
 ```bash
-# Production build (output in dist/)
-npm run build
-
-# Development build (unminified, with source maps)
-npm run build-dev
+npm run build       # production → dist/
+npm run build-dev   # unminified + source maps
 ```
 
-## Container Image
+## Cluster deployment
 
-Build and push the plugin image using the helper script:
+Manifests and scripts live under `deployment/`.
 
-```bash
-./deployment/build.sh
-```
-
-The script prompts for your quay.io organisation, then builds and pushes the
-image. To use a custom image tag, set `IMAGE` directly:
+### On-cluster build (recommended for workshops / RHDP)
 
 ```bash
-IMAGE=quay.io/myorg/tenant-form-acm-gui:v1.2.0 ./deployment/build.sh
-```
-
-The image uses a multi-stage build (UBI9 Node.js 22 → UBI9 nginx 1.20) and
-includes a custom `nginx.conf` that serves the plugin bundle over HTTPS on port
-9443 using the cluster's service-CA certificate, as required by the OpenShift
-console plugin proxy.
-
-## Cluster Deployment
-
-All Kubernetes manifests and helper scripts live in the `deployment/` directory.
-
-### Build on OpenShift (recommended for workshop / RHDP clusters)
-
-When you do **not** have local Podman/Docker — or you want the cluster to compile the
-plugin the same way every time — build inside OpenShift and deploy to the integrated
-registry. This is how the Create Tenant plugin is run on the ACM demo hub.
-
-**Prerequisites**
-
-```bash
-# From demo-setups (RHDP example — adjust env name if different):
-cd demo-setups && ./bin/connect my-demo
-export KUBECONFIG="$PWD/tmp/my-demo.kubeconfig"
+# Example with demo-setups SOCKS + kubeconfig:
+cd demo-setups && ./bin/connect demo-4vs6v
+export KUBECONFIG="$PWD/tmp/demo-4vs6v.kubeconfig"
 export HTTPS_PROXY="socks5://localhost:9050"
 
-oc whoami
-oc whoami --show-console
+cd ../tenant-form-acm-gui
+./deployment/deploy-cluster-build.sh   # binary upload of local tree
+# or: ./deployment/deploy-git-build.sh
 ```
 
-The Tenant CRD must exist (`oc apply -f deployment/01-tenant-crd.yaml` if needed).
+| Script | Use when |
+| ------ | -------- |
+| `deploy-cluster-build.sh` | Local clone / uncommitted changes (`oc start-build --from-dir=.`) |
+| `deploy-git-build.sh` | Build from a pushed GitHub ref |
+| `deploy-local.sh` | Local Podman build → integrated registry |
+| `deploy.sh` | Deploy a pre-built image (Quay or registry URL via `IMAGE=`) |
+| `undeploy.sh` | Remove plugin + namespace (optional CRD delete) |
 
-#### Option A — Git build (after pushing to GitHub)
+Git build overrides:
 
-Push your branch, then on any machine with `oc` access to the hub:
+```bash
+GIT_REPO=https://github.com/mandibuswell/tenant-form-acm-gui.git \
+GIT_REF=main \
+./deployment/deploy-git-build.sh
+```
+
+### Pre-built image
 
 ```bash
 git clone https://github.com/mandibuswell/tenant-form-acm-gui.git
 cd tenant-form-acm-gui
-git checkout feature/tenant-identity-sso   # or your branch
-
-chmod +x deployment/deploy-git-build.sh
-./deployment/deploy-git-build.sh
-```
-
-Environment overrides:
-
-```bash
-GIT_REPO=https://github.com/mandibuswell/tenant-form-acm-gui.git \
-GIT_REF=feature/tenant-identity-sso \
-./deployment/deploy-git-build.sh
-```
-
-The script creates namespace `tenant-form-acm-gui`, a Docker-strategy BuildConfig, builds
-from the Dockerfile in Git (~5–10 min for `npm ci` + webpack), pushes to the integrated
-registry, and runs `deploy.sh`.
-
-**OpenShift console (equivalent):** Developer → **+Add** → **Import from Git**
-
-| Field | Value |
-| ----- | ----- |
-| Git repository URL | `https://github.com/mandibuswell/tenant-form-acm-gui.git` |
-| Git reference | `feature/tenant-identity-sso` |
-| Build strategy | Docker |
-| Namespace | `tenant-form-acm-gui` |
-| Output tag | `tenant-form-acm-gui:latest` |
-
-After the build completes, set the Deployment image and ensure the ConsolePlugin is
-enabled (or run `./deployment/deploy.sh` with
-`IMAGE=image-registry.openshift-image-registry.svc:5000/tenant-form-acm-gui/tenant-form-acm-gui:latest`).
-
-#### Option B — Binary upload (local clone, no Git push)
-
-Upload the working tree from your laptop/bastion:
-
-```bash
-chmod +x deployment/deploy-cluster-build.sh
-./deployment/deploy-cluster-build.sh
-```
-
-Uses `oc start-build --from-dir=.` — useful for uncommitted local changes.
-
-#### Option C — Local Podman + integrated registry
-
-Requires Podman on the build host:
-
-```bash
-./deployment/deploy-local.sh
-```
-
-#### Verify and use
-
-```bash
-oc get builds -n tenant-form-acm-gui
-oc get pods -n tenant-form-acm-gui
-oc get consoleplugins tenant-form-acm-gui
-```
-
-Open **Fleet Management → Create Tenant** or
-`https://<console-url>/tenant-create`. Hard-refresh or incognito if the old bundle is
-cached.
-
----
-
-### Deploy a pre-built Quay image
-
-Clone the repo to your bastion host, log in with `oc`, and run the deploy
-script:
-
-```bash
-git clone https://github.com/ngner/tenant-form-acm-gui.git
-cd tenant-form-acm-gui
-
 oc login https://<api-server>:6443 -u <user>
-
 ./deployment/deploy.sh
-```
-
-The script prompts for your quay.io organisation, then applies everything in
-order — CRD, namespace, Deployment + Service, ConsolePlugin registration — and
-enables the plugin on the cluster console.
-
-To use a custom image, set the `IMAGE` environment variable:
-
-```bash
-IMAGE=quay.io/myorg/tenant-form-acm-gui:v1.2.0 ./deployment/deploy.sh
+# or: IMAGE=quay.io/myorg/tenant-form-acm-gui:v1.2.0 ./deployment/deploy.sh
 ```
 
 ### What gets created
@@ -236,73 +185,53 @@ IMAGE=quay.io/myorg/tenant-form-acm-gui:v1.2.0 ./deployment/deploy.sh
 | ---- | --------- |
 | `deployment/00-namespace.yaml` | Namespace `tenant-form-acm-gui` |
 | `deployment/01-tenant-crd.yaml` | CRD `tenants.dusty-seahorse.io` |
-| `deployment/02-deployment.yaml` | Deployment + Service (nginx serving the plugin bundle over TLS) |
-| `deployment/03-consoleplugin.yaml` | ConsolePlugin CR that registers the plugin with the console |
-
-The Service is annotated with `service.beta.openshift.io/serving-cert-secret-name`
-so OpenShift's service-CA operator automatically generates a TLS certificate. The
-Deployment mounts this certificate and nginx serves HTTPS on port 9443.
-
-### Manual deployment
-
-If you prefer to apply manifests individually:
-
-```bash
-oc apply -f deployment/01-tenant-crd.yaml
-oc apply -f deployment/00-namespace.yaml
-oc apply -f deployment/02-deployment.yaml
-oc apply -f deployment/03-consoleplugin.yaml
-
-oc patch console.operator cluster --type merge \
-  --patch '{"spec":{"plugins":["tenant-form-acm-gui"]}}'
-```
+| `deployment/02-deployment.yaml` | Deployment + Service (nginx TLS on 9443 via service-CA) |
+| `deployment/03-consoleplugin.yaml` | ConsolePlugin registration |
 
 ### Verify
 
 ```bash
-oc get pods -n tenant-form-acm-gui
-oc get consoleplugins
+oc get builds,pods -n tenant-form-acm-gui
+oc get consoleplugins tenant-form-acm-gui
 ```
 
-After the console pods restart (typically 30–60 seconds), a **Create Tenant**
-link appears in the **Fleet Management (All Clusters)** perspective sidebar in
-ACM. Navigate to `https://<console-url>/tenant-create` to access the form
-directly.
+Open **Fleet Management → Tenants** or `https://<console-url>/tenants`.
+Hard-refresh if the console caches an old plugin bundle (~30–60s after rollout).
 
-## Uninstall
+## Container image
 
 ```bash
-./deployment/undeploy.sh
+./deployment/build.sh
+# or: IMAGE=quay.io/myorg/tenant-form-acm-gui:v1.2.0 ./deployment/build.sh
 ```
 
-The script removes the console plugin, deletes the namespace (which takes the
-Deployment and Service with it), and optionally deletes the Tenant CRD.
+Multi-stage UBI9 Node.js 22 → UBI9 nginx 1.20; `nginx.conf` serves HTTPS on
+9443 for the console plugin proxy.
 
-## Project Layout
+## Project layout
 
 ```
-├── console-extensions.json   # Nav item + page route registration (ACM perspective)
-├── Dockerfile                # Multi-stage UBI9 → nginx image
-├── nginx.conf                # HTTPS on 9443 + HTTP on 8080 (health probes)
-├── package.json              # Dependencies + consolePlugin metadata
-├── tsconfig.json             # TypeScript configuration
-├── webpack.config.ts         # Webpack with ConsoleRemotePlugin
-├── tenant-crd.yaml           # Tenant CRD definition (source of truth)
-├── deployment/
-│   ├── 00-namespace.yaml     # Namespace
-│   ├── 01-tenant-crd.yaml    # Tenant CRD
-│   ├── 02-deployment.yaml    # Deployment + Service (TLS via service-CA)
-│   ├── 03-consoleplugin.yaml # ConsolePlugin registration
-│   ├── build.sh                  # Build + push container image via podman
-│   ├── deploy.sh                 # Deploy pre-built image (prompts for quay.io org)
-│   ├── deploy-git-build.sh       # Build from GitHub on-cluster + deploy (recommended)
-│   ├── deploy-cluster-build.sh   # Binary upload build on-cluster + deploy
-│   ├── deploy-local.sh           # Local podman build + push to integrated registry
-│   └── undeploy.sh               # One-command teardown
+├── console-extensions.json   # ACM nav + routes (list / create / edit + legacy)
+├── Dockerfile
+├── nginx.conf
+├── package.json              # consolePlugin exposed modules
+├── tenant-crd.yaml           # CRD source (also under deployment/)
+├── docs/
+│   └── EDIT-TENANT.md
+├── deployment/               # namespace, CRD, deploy scripts
 └── src/
-    ├── models.ts             # K8sModel for dusty-seahorse.io/v1alpha1 Tenant
+    ├── models.ts
+    ├── tenantFormTypes.ts
+    ├── tenantFormUtils.ts
+    ├── tenantRoutes.ts
+    ├── useTenantEditParams.ts
     └── components/
-        └── CreateTenantPage.tsx   # PatternFly form with smart defaults
+        ├── TenantsListPage.tsx
+        ├── CreateTenantPage.tsx
+        ├── EditTenantPage.tsx
+        ├── TenantFormPage.tsx    # shared create/edit form
+        ├── LegacyCreateRedirect.tsx
+        └── LegacyEditRedirect.tsx
 ```
 
 ## License

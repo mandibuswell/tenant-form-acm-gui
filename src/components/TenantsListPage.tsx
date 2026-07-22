@@ -5,9 +5,19 @@ import {
   Bullseye,
   Button,
   Content,
+  Divider,
+  Dropdown,
+  DropdownItem,
+  DropdownList,
   EmptyState,
   EmptyStateBody,
   Label,
+  MenuToggle,
+  MenuToggleElement,
+  Modal,
+  ModalBody,
+  ModalFooter,
+  ModalHeader,
   PageSection,
   SearchInput,
   Spinner,
@@ -17,11 +27,18 @@ import {
   ToolbarGroup,
   ToolbarItem,
 } from '@patternfly/react-core';
-import { ExternalLinkAltIcon, PlusCircleIcon, SearchIcon } from '@patternfly/react-icons';
-import { k8sList } from '@openshift-console/dynamic-plugin-sdk';
+import { EllipsisVIcon, ExternalLinkAltIcon, PlusCircleIcon, SearchIcon } from '@patternfly/react-icons';
+import { k8sDelete, k8sList } from '@openshift-console/dynamic-plugin-sdk';
 import { TenantModel } from '../models';
 import { DEFAULT_NAMESPACE, TenantResource, WorkloadProfile } from '../tenantFormTypes';
-import { TENANTS_ACM_SEARCH_PATH, TENANTS_CREATE_PATH, tenantEditPath } from '../tenantRoutes';
+import {
+  TENANTS_ACM_SEARCH_PATH,
+  TENANTS_CREATE_PATH,
+  tenantCaasClustersPath,
+  tenantEditPath,
+  tenantVmsSearchPath,
+  tenantWorkloadsSearchPath,
+} from '../tenantRoutes';
 import { specField } from '../tenantFormUtils';
 
 interface TenantRow {
@@ -29,19 +46,25 @@ interface TenantRow {
   namespace: string;
   displayName: string;
   owner: string;
+  workloadNamespace: string;
   workloadProfile: WorkloadProfile;
   ssoEnabled: boolean;
+  resource: TenantResource;
 }
 
 const toRow = (tenant: TenantResource): TenantRow => {
   const s = tenant.spec ?? {};
+  const name = tenant.metadata.name;
+  const workloadNamespace = specField(s.workloadNamespace) || name;
   return {
-    name: tenant.metadata.name,
+    name,
     namespace: tenant.metadata.namespace || DEFAULT_NAMESPACE,
     displayName: specField(s.displayName),
     owner: specField(s.owner),
+    workloadNamespace,
     workloadProfile: (s.workloadProfile as WorkloadProfile) || 'vms',
     ssoEnabled: Boolean(s.identity?.enabled),
+    resource: tenant,
   };
 };
 
@@ -51,9 +74,79 @@ const profileLabel = (profile: WorkloadProfile): string => {
       return 'Containers';
     case 'both':
       return 'Containers + VMs';
+    case 'clusters':
+      return 'Clusters (CaaS via Hosted Control Plane)';
     default:
       return 'VMs';
   }
+};
+
+const TenantActionsMenu: React.FC<{
+  row: TenantRow;
+  onDelete: (row: TenantRow) => void;
+}> = ({ row, onDelete }) => {
+  const history = useHistory();
+  const [isOpen, setIsOpen] = React.useState(false);
+  const isCaas = row.workloadProfile === 'clusters';
+  const wantsVms = row.workloadProfile === 'vms' || row.workloadProfile === 'both';
+  const wantsContainers =
+    row.workloadProfile === 'containers' || row.workloadProfile === 'both';
+
+  return (
+    <Dropdown
+      isOpen={isOpen}
+      onOpenChange={(open) => setIsOpen(open)}
+      onSelect={() => setIsOpen(false)}
+      toggle={(toggleRef: React.Ref<MenuToggleElement>) => (
+        <MenuToggle
+          ref={toggleRef}
+          aria-label={`Actions for ${row.name}`}
+          variant="plain"
+          onClick={() => setIsOpen((prev) => !prev)}
+          isExpanded={isOpen}
+          icon={<EllipsisVIcon />}
+        />
+      )}
+      popperProps={{ position: 'right' }}
+    >
+      <DropdownList>
+        <DropdownItem
+          key="edit"
+          onClick={() => history.push(tenantEditPath(row.name, row.namespace))}
+        >
+          Edit
+        </DropdownItem>
+        {wantsVms && (
+          <DropdownItem
+            key="list-vms"
+            onClick={() => history.push(tenantVmsSearchPath(row.workloadNamespace))}
+          >
+            List VMs
+          </DropdownItem>
+        )}
+        {isCaas && (
+          <DropdownItem
+            key="list-caas"
+            onClick={() => history.push(tenantCaasClustersPath(row.name))}
+          >
+            List CaaS
+          </DropdownItem>
+        )}
+        {(wantsContainers) && (
+          <DropdownItem
+            key="list-workloads"
+            onClick={() => history.push(tenantWorkloadsSearchPath(row.workloadNamespace))}
+          >
+            List Workloads
+          </DropdownItem>
+        )}
+        <Divider component="li" key="separator" />
+        <DropdownItem key="delete" isDanger onClick={() => onDelete(row)}>
+          Delete
+        </DropdownItem>
+      </DropdownList>
+    </Dropdown>
+  );
 };
 
 const TenantsListPage: React.FC = () => {
@@ -62,6 +155,9 @@ const TenantsListPage: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState('');
   const [filter, setFilter] = React.useState('');
+  const [pendingDelete, setPendingDelete] = React.useState<TenantRow | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
+  const [deleteError, setDeleteError] = React.useState('');
 
   const loadTenants = React.useCallback(() => {
     setLoading(true);
@@ -85,11 +181,37 @@ const TenantsListPage: React.FC = () => {
     return sorted
       .filter((tenant) => {
         const row = toRow(tenant);
-        const haystack = [row.name, row.displayName, row.owner, row.workloadProfile].join(' ').toLowerCase();
+        const haystack = [row.name, row.displayName, row.owner, row.workloadProfile]
+          .join(' ')
+          .toLowerCase();
         return haystack.includes(q);
       })
       .map(toRow);
   }, [tenants, filter]);
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setPendingDelete(null);
+    setDeleteError('');
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setDeleteError('');
+    try {
+      await k8sDelete({
+        model: TenantModel,
+        resource: pendingDelete.resource,
+      });
+      setPendingDelete(null);
+      loadTenants();
+    } catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   return (
     <>
@@ -232,12 +354,7 @@ const TenantsListPage: React.FC = () => {
                     {row.ssoEnabled ? <Label color="green">Enabled</Label> : <Label color="grey">Off</Label>}
                   </td>
                   <td className="pf-v6-c-table__td" role="cell" data-label="Actions">
-                    <Button
-                      variant="secondary"
-                      onClick={() => history.push(tenantEditPath(row.name, row.namespace))}
-                    >
-                      Edit
-                    </Button>
+                    <TenantActionsMenu row={row} onDelete={setPendingDelete} />
                   </td>
                 </tr>
               ))}
@@ -245,6 +362,44 @@ const TenantsListPage: React.FC = () => {
           </table>
         )}
       </PageSection>
+
+      <Modal
+        variant="small"
+        isOpen={Boolean(pendingDelete)}
+        onClose={closeDeleteModal}
+        aria-labelledby="delete-tenant-title"
+        aria-describedby="delete-tenant-body"
+      >
+        <ModalHeader title="Delete tenant?" labelId="delete-tenant-title" titleIconVariant="warning" />
+        <ModalBody id="delete-tenant-body">
+          {pendingDelete && (
+            <>
+              Delete Tenant CR <strong>{pendingDelete.name}</strong> from{' '}
+              <strong>{pendingDelete.namespace}</strong>? Policy cleanup runs on the next cycle;
+              some hub RBAC and themes may need manual removal.
+            </>
+          )}
+          {deleteError && (
+            <Alert variant="danger" isInline title="Delete failed" style={{ marginTop: '1rem' }}>
+              {deleteError}
+            </Alert>
+          )}
+        </ModalBody>
+        <ModalFooter>
+          <Button
+            key="confirm"
+            variant="danger"
+            onClick={confirmDelete}
+            isLoading={deleting}
+            isDisabled={deleting}
+          >
+            Delete
+          </Button>
+          <Button key="cancel" variant="link" onClick={closeDeleteModal} isDisabled={deleting}>
+            Cancel
+          </Button>
+        </ModalFooter>
+      </Modal>
     </>
   );
 };
