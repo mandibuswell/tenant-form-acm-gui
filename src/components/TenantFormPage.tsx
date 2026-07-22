@@ -90,7 +90,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const isEdit = mode === 'edit';
 
   const [name, setName] = React.useState('');
-  const [namespace, setNamespace] = React.useState(DEFAULT_NAMESPACE);
   const [spec, setSpec] = React.useState<TenantSpecForm>(() => defaultTenantSpec());
   const [originalWorkloadProfile, setOriginalWorkloadProfile] = React.useState<WorkloadProfile | null>(
     null,
@@ -122,7 +121,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
     }
     const parsed = parseTenantResource(existing);
     setName(parsed.name);
-    setNamespace(parsed.namespace);
     setSpec(parsed.spec);
     setOriginalWorkloadProfile(parsed.originalWorkloadProfile);
     setOriginalIdentityEnabled(parsed.originalIdentityEnabled);
@@ -136,7 +134,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
 
   const { tenantName, tenantNamespace, workloadNamespace } = resolveTenantIdentity({
     name,
-    namespace,
+    namespace: DEFAULT_NAMESPACE,
     spec,
     existing,
     initial,
@@ -487,11 +485,11 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
               </GridItem>
               <GridItem span={6}>
                 <FormGroup
-                  label="Workload namespace"
+                  label="Namespace for Tenant Resources"
                   fieldId="workload-namespace"
                   labelHelp={helpPopover(
                     'Namespace on managed clusters for this tenant. Fixed after the tenant is created.',
-                    'Workload namespace',
+                    'Namespace for Tenant Resources',
                   )}
                 >
                   <TextInput
@@ -510,8 +508,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}
                 >
                   Managed cluster namespace: <strong>{effectiveWorkloadNamespace || '—'}</strong>
-                  {' '}
-                  (label <code>tenant={tenantName || '…'}</code> on provisioned resources)
                 </Content>
               </GridItem>
               <GridItem span={6}>
@@ -519,7 +515,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   label="Workload profile"
                   fieldId="workload-profile"
                   labelHelp={helpPopover(
-                    'Controls which ACM policies provision resources. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. clusters — Cluster-as-a-Service (hub HCP namespace; no spoke VM quotas). Narrowing the profile does not delete existing resources.',
+                    'Controls which ACM policies provision resources. vms — VM placement (AAQ, KubeVirt RBAC). containers — managed placement (ResourceQuota, no AAQ). both — both policy sets. clusters — Cluster-as-a-Service via Hosted Control Plane (no compute VM quotas). Narrowing the profile does not delete existing resources.',
                     'Workload profile',
                   )}
                 >
@@ -534,7 +530,10 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                     <FormSelectOption value="vms" label="VMs (Fleet Virtualization)" />
                     <FormSelectOption value="containers" label="Containers" />
                     <FormSelectOption value="both" label="Both" />
-                    <FormSelectOption value="clusters" label="Clusters (CaaS / HCP)" />
+                    <FormSelectOption
+                      value="clusters"
+                      label="Clusters (CaaS via Hosted Control Plane)"
+                    />
                   </FormSelect>
                 </FormGroup>
               </GridItem>
@@ -561,40 +560,24 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
             <div id="tenant-form-capacity" />
             {isCaas && (
               <>
-                {sectionDescription(
-                  'Hub Hosted Control Plane budget for one HA HCP. Spoke VM quotas are not used for CaaS.',
-                )}
                 <Content
                   component="p"
-                  style={{ fontSize: '0.875rem', color: 'var(--pf-t--global--text--color--subtle)' }}
+                  style={{
+                    marginTop: 0,
+                    marginBottom: '0.5rem',
+                    lineHeight: 1.4,
+                    color: 'var(--pf-t--global--text--color--subtle)',
+                  }}
                 >
-                  Hub namespace defaults to{' '}
-                  <strong>{tenantName ? `${tenantName}-hcp` : '{tenant}-hcp'}</strong>.
+                  Resource quota for the control plane of the CaaS which runs on the hub cluster.
+                  <br />
+                  Compute VM quotas are not required.
+                  <br />
+                  Control Plane namespace:{' '}
+                  <strong>{tenantName ? `${tenantName}-hcp` : '{tenant}-hcp'}</strong>
                 </Content>
-                <Grid hasGutter style={{ marginTop: '0.75rem' }}>
-                  <GridItem span={6}>
-                    <FormGroup
-                      label="HCP namespace"
-                      fieldId="caas-hcp-ns"
-                      labelHelp={helpPopover(
-                        'Hub namespace for hosted control plane(s). Defaults to {tenant}-hcp.',
-                        'HCP namespace',
-                      )}
-                    >
-                      <TextInput
-                        id="caas-hcp-ns"
-                        value={spec.clusterAsAService.hcpNamespace}
-                        onChange={(_e, v) =>
-                          setSpec((prev) => ({
-                            ...prev,
-                            clusterAsAService: { ...prev.clusterAsAService, hcpNamespace: v },
-                          }))
-                        }
-                        placeholder={tenantName ? `${tenantName}-hcp` : 'tenant-hcp'}
-                      />
-                    </FormGroup>
-                  </GridItem>
-                  <GridItem span={2}>
+                <Grid hasGutter>
+                  <GridItem span={4}>
                     <FormGroup label="Hub CPU" fieldId="caas-hub-cpu">
                       <TextInput
                         id="caas-hub-cpu"
@@ -608,7 +591,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                       />
                     </FormGroup>
                   </GridItem>
-                  <GridItem span={2}>
+                  <GridItem span={4}>
                     <FormGroup label="Hub memory" fieldId="caas-hub-mem">
                       <TextInput
                         id="caas-hub-mem"
@@ -622,7 +605,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                       />
                     </FormGroup>
                   </GridItem>
-                  <GridItem span={2}>
+                  <GridItem span={4}>
                     <FormGroup label="Hub pods" fieldId="caas-hub-pods">
                       <TextInput
                         id="caas-hub-pods"
@@ -877,10 +860,23 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
 
           <div id="tenant-form-identity">
           <ExpandableSection
-            toggleText="Identity (console SSO)"
+            toggleText={
+              isCaas ? 'Identity (configure after CaaS)' : 'Identity (console SSO)'
+            }
             isExpanded={identityExpanded}
             onToggle={(_e, expanded) => setIdentityExpanded(expanded)}
           >
+            {isCaas ? (
+              <Alert
+                variant="info"
+                isInline
+                title="Configure identity after the tenant CaaS is created"
+              >
+                CaaS tenants do not register an identity provider on the management console.
+                Create the CaaS first, then use Edit Tenant once the Hosted Cluster is Available
+                to add tenant SSO for this cluster as required.
+              </Alert>
+            ) : (
             <FormSection title="OpenShift OAuth identity provider">
               <FormGroup fieldId="identity-enabled">
                 <input
@@ -904,7 +900,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                         }
                       >
                         <option value="keycloak">Keycloak (platform-managed realm)</option>
-                        <option value="oidc">External OIDC (Azure, Okta, …)</option>
+                        <option value="oidc">External OIDC (Azure, Okta, …) *not yet supported</option>
                       </select>
                     </FormGroup>
                   </GridItem>
@@ -1061,6 +1057,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                 </Grid>
               )}
             </FormSection>
+            )}
           </ExpandableSection>
           </div>
 
@@ -1135,22 +1132,6 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
             isExpanded={advancedExpanded}
             onToggle={(_e, expanded) => setAdvancedExpanded(expanded)}
           >
-            <FormSection title="Cluster Set Management">
-              <Grid hasGutter>
-                <GridItem span={6}>
-                  <FormGroup label="Cluster Groups Namespace" fieldId="tenant-namespace">
-                    <TextInput
-                      id="tenant-namespace"
-                      value={isEdit ? effectiveNamespace : namespace}
-                      placeholder={DEFAULT_NAMESPACE}
-                      onChange={(_e, v) => setNamespace(v)}
-                      readOnlyVariant={isEdit ? 'default' : undefined}
-                      readOnly={isEdit}
-                    />
-                  </FormGroup>
-                </GridItem>
-              </Grid>
-            </FormSection>
             <FormSection title="Access Groups">
               <Grid hasGutter>
                 <GridItem span={6}>

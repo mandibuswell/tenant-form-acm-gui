@@ -93,6 +93,11 @@ export function applyWorkloadProfileQuotaDefaults(
       ...prev.seedStarterVm,
       enabled: profile === 'vms' || profile === 'both',
     },
+    // CaaS: no hub console IdP at create — guest SSO is an edit-after step.
+    identity: {
+      ...prev.identity,
+      enabled: profile === 'clusters' ? false : prev.identity.enabled,
+    },
     clusterAsAService: {
       ...prev.clusterAsAService,
       hubCpu: prev.clusterAsAService.hubCpu.trim() || d.hubCpu,
@@ -317,9 +322,6 @@ export function resolveTenantIdentity(params: {
     params.existing?.metadata?.name?.trim() ||
     '';
   const tenantNamespace =
-    params.namespace.trim() ||
-    params.initial?.namespace?.trim() ||
-    params.existing?.metadata?.namespace?.trim() ||
     DEFAULT_NAMESPACE;
   const specWorkload = params.spec.workloadNamespace.trim();
   const existingWorkload = str(params.existing?.spec?.workloadNamespace);
@@ -364,7 +366,7 @@ export function validateTenantForm(params: {
   if (!resolvedName) errs.push('Tenant name is required.');
   if (!resolvedAdmin) errs.push('Admin Group is required.');
   if (!resolvedUser) errs.push('User Group is required.');
-  if (spec.identity.enabled) {
+  if (spec.identity.enabled && spec.workloadProfile !== 'clusters') {
     const secretRequired =
       mode === 'create' || (mode === 'edit' && !identitySecretUnchanged);
     if (secretRequired && !spec.identity.clientSecret.trim()) {
@@ -483,13 +485,15 @@ export function buildTenantResource(params: {
         pods: spec.clusterAsAService.hubPods.trim() || hub.hubPods,
       },
     };
-    if (spec.clusterAsAService.hcpNamespace.trim()) {
-      caas.hcpNamespace = spec.clusterAsAService.hcpNamespace.trim();
-    }
+    // Control plane namespace is fixed as {tenant}-hcp (policy default); not form-overridable.
     tenantSpec.clusterAsAService = caas;
   }
 
-  if (spec.identity.enabled) {
+  // CaaS tenants never register a hub oauth/cluster IdP; guest SSO is edit-after.
+  const hubIdentityEnabled =
+    spec.identity.enabled && spec.workloadProfile !== 'clusters';
+
+  if (hubIdentityEnabled) {
     const idpName = spec.identity.consoleLoginName.trim() || `${tenantName}-idp`;
     const identity: Record<string, unknown> = {
       enabled: true,
