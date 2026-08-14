@@ -34,6 +34,7 @@ import { DEFAULT_NAMESPACE, TenantResource, WorkloadProfile } from '../tenantFor
 import {
   TENANTS_ACM_SEARCH_PATH,
   TENANTS_CREATE_PATH,
+  TENANTS_HELP_PATH,
   tenantCaasClustersPath,
   tenantEditPath,
   tenantVmsSearchPath,
@@ -222,7 +223,8 @@ const TenantsListPage: React.FC = () => {
           style={{ marginTop: '0.5rem', color: 'var(--pf-t--global--text--color--subtle)' }}
         >
           Hub control configuration — Tenant CRs in the <strong>{DEFAULT_NAMESPACE}</strong> namespace.
-          Create and edit here drives ACM policy from the hub.
+          Create and edit here drives ACM policy from the hub.{' '}
+          <Link to={TENANTS_HELP_PATH}>How tenants work</Link>
         </Content>
       </PageSection>
       <PageSection>

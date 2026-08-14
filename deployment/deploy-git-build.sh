@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 GIT_REPO="${GIT_REPO:-https://github.com/mandibuswell/tenant-form-acm-gui.git}"
-GIT_REF="${GIT_REF:-feature/tenant-identity-sso}"
+GIT_REF="${GIT_REF:-main}"
 NS="${NS:-tenant-form-acm-gui}"
 BC="${BC:-tenant-form-acm-gui}"
 IMAGE="image-registry.openshift-image-registry.svc:5000/${NS}/${BC}:latest"

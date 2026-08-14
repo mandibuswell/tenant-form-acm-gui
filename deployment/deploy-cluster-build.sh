@@ -23,15 +23,20 @@ echo "==> [1/5] Namespace + image stream..."
 oc apply -f "${SCRIPT_DIR}/00-namespace.yaml"
 oc create imagestream "${BC}" -n "${NS}" --dry-run=client -o yaml | oc apply -f -
 
-echo "==> [2/5] BuildConfig (docker strategy)..."
-if ! oc get buildconfig "${BC}" -n "${NS}" &>/dev/null; then
+echo "==> [2/5] BuildConfig (docker strategy, binary source)..."
+SOURCE_TYPE="$(oc get buildconfig "${BC}" -n "${NS}" -o jsonpath='{.spec.source.type}' 2>/dev/null || echo none)"
+if [ "${SOURCE_TYPE}" != "Binary" ]; then
+  if [ "${SOURCE_TYPE}" != "none" ]; then
+    echo "    Replacing ${SOURCE_TYPE} BuildConfig with Binary source..."
+    oc delete buildconfig "${BC}" -n "${NS}"
+  fi
   oc new-build --name="${BC}" \
     --binary \
     --strategy=docker \
     --to="${IMAGE}" \
     -n "${NS}"
 else
-  echo "    BuildConfig ${BC} already exists"
+  echo "    BuildConfig ${BC} already exists (Binary)"
 fi
 
 echo "==> [3/5] Starting binary build from source..."

@@ -511,6 +511,8 @@ export function buildTenantResource(params: {
         instanceName: spec.identity.keycloakInstance.trim() || 'main',
         realm: tenantName,
         manageRealm: spec.identity.manageRealm,
+        // Match pre-mounted themes/<tenant>.css from apply-themes --no-tenant
+        loginTheme: tenantName,
       };
       if (spec.identity.manageRealm && spec.identity.seedUsers) {
         (identity.keycloak as Record<string, unknown>).seedUsers = true;
@@ -537,6 +539,7 @@ export function buildTenantResource(params: {
               instanceName: str(prevKeycloak.instanceName) || 'main',
               realm: str(prevKeycloak.realm) || tenantName,
               manageRealm: true,
+              loginTheme: str(prevKeycloak.loginTheme) || tenantName,
             },
           }
         : {}),

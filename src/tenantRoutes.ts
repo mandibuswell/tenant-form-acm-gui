@@ -2,6 +2,7 @@ import { DEFAULT_NAMESPACE } from './tenantFormTypes';
 
 export const TENANTS_LIST_PATH = '/tenants';
 export const TENANTS_CREATE_PATH = '/tenants/create';
+export const TENANTS_HELP_PATH = '/tenants/help';
 
 /** ACM Resources search with a textsearch query. */
 export const acmSearchPath = (textsearch: string): string =>
