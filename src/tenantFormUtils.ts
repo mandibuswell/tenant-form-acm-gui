@@ -137,7 +137,10 @@ export const defaultTenantSpec = (): TenantSpecForm => {
     },
     seedStarterVm: {
       enabled: true,
-      cluster: 'virtualisation-cluster',
+      mode: 'all',
+      cluster: '',
+      zones: [],
+      clusters: [],
       vmName: '',
     },
     clusterAsAService: {
@@ -215,9 +218,21 @@ const parseSeedStarterVm = (
   }
   // Explicit false opts out; omit / true keeps default-on for VM profiles
   const enabled = raw.enabled === false ? false : wantsVm ? true : Boolean(raw.enabled);
+  const modeRaw = str(raw.mode);
+  const mode =
+    modeRaw === 'all' || modeRaw === 'selected' || modeRaw === 'single' ? modeRaw : 'single';
+  const zones = Array.isArray(raw.zones)
+    ? raw.zones.map((z) => str(z)).filter(Boolean)
+    : [];
+  const clusters = Array.isArray(raw.clusters)
+    ? raw.clusters.map((c) => str(c)).filter(Boolean)
+    : [];
   return {
     enabled,
-    cluster: str(raw.cluster) || base.cluster,
+    mode,
+    cluster: str(raw.cluster),
+    zones,
+    clusters,
     vmName: str(raw.vmName),
   };
 };
@@ -366,6 +381,15 @@ export function validateTenantForm(params: {
   if (!resolvedName) errs.push('Tenant name is required.');
   if (!resolvedAdmin) errs.push('Admin Group is required.');
   if (!resolvedUser) errs.push('User Group is required.');
+  if (
+    (spec.workloadProfile === 'vms' || spec.workloadProfile === 'both') &&
+    spec.seedStarterVm.enabled &&
+    spec.seedStarterVm.mode === 'selected' &&
+    !spec.seedStarterVm.zones.some((z) => z.trim()) &&
+    !spec.seedStarterVm.clusters.some((c) => c.trim())
+  ) {
+    errs.push('Select at least one zone or cluster for starter VM seeding.');
+  }
   if (spec.identity.enabled && spec.workloadProfile !== 'clusters') {
     const secretRequired =
       mode === 'create' || (mode === 'edit' && !identitySecretUnchanged);
@@ -464,9 +488,16 @@ export function buildTenantResource(params: {
   if (wantsVmProfile) {
     const seed: Record<string, unknown> = {
       enabled: spec.seedStarterVm.enabled,
+      mode: spec.seedStarterVm.mode,
     };
-    if (spec.seedStarterVm.cluster.trim()) {
+    if (spec.seedStarterVm.mode === 'single' && spec.seedStarterVm.cluster.trim()) {
       seed.cluster = spec.seedStarterVm.cluster.trim();
+    }
+    if (spec.seedStarterVm.mode === 'selected') {
+      const zones = spec.seedStarterVm.zones.map((z) => z.trim()).filter(Boolean);
+      const clusters = spec.seedStarterVm.clusters.map((c) => c.trim()).filter(Boolean);
+      if (zones.length) seed.zones = zones;
+      if (clusters.length) seed.clusters = clusters;
     }
     if (spec.seedStarterVm.vmName.trim()) {
       seed.vmName = spec.seedStarterVm.vmName.trim();

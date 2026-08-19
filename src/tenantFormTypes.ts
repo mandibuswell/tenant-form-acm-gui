@@ -27,10 +27,18 @@ export interface IdentityForm {
 
 export type WorkloadProfile = 'vms' | 'containers' | 'both' | 'clusters';
 
+export type SeedVmTargetMode = 'single' | 'all' | 'selected';
+
 export interface SeedStarterVmForm {
   /** Default true for vms/both — set false to opt out */
   enabled: boolean;
+  mode: SeedVmTargetMode;
+  /** Used when mode is single */
   cluster: string;
+  /** Used when mode is selected — tenancy.acm.io/zone labels */
+  zones: string[];
+  /** Used when mode is selected — explicit managed cluster names */
+  clusters: string[];
   vmName: string;
 }
 

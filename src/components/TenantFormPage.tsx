@@ -26,8 +26,8 @@ import {
   JumpLinksItem,
 } from '@patternfly/react-core';
 import { PlusCircleIcon, MinusCircleIcon, EyeIcon, EyeSlashIcon } from '@patternfly/react-icons';
-import { k8sCreate, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
-import { TenantModel } from '../models';
+import { k8sCreate, k8sList, k8sUpdate } from '@openshift-console/dynamic-plugin-sdk';
+import { ManagedClusterModel, TenantModel } from '../models';
 import { TENANTS_ACM_SEARCH_PATH, TENANTS_LIST_PATH } from '../tenantRoutes';
 import {
   DEFAULT_NAMESPACE,
@@ -35,6 +35,7 @@ import {
   TenantResource,
   TenantSpecForm,
   WorkloadProfile,
+  SeedVmTargetMode,
 } from '../tenantFormTypes';
 import {
   buildTenantResource,
@@ -105,6 +106,47 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const [identitySecretUnchanged, setIdentitySecretUnchanged] = React.useState(isEdit);
   const [showSeedPassword, setShowSeedPassword] = React.useState(false);
   const [formReady, setFormReady] = React.useState(!isEdit);
+  const [vmTargetOptions, setVmTargetOptions] = React.useState<
+    Array<{ clusterName: string; zone: string }>
+  >([]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const items = (await k8sList({ model: ManagedClusterModel, queryParams: {} })) as Array<{
+          metadata?: { name?: string; labels?: Record<string, string> };
+          status?: { conditions?: Array<{ type?: string; status?: string }> };
+        }>;
+        if (cancelled) return;
+        setVmTargetOptions(
+          items
+            .filter(
+              (mc) =>
+                mc.metadata?.labels?.['tenancy.acm.io/capability-vm'] === 'true' &&
+                mc.status?.conditions?.some(
+                  (c) => c.type === 'ManagedClusterConditionAvailable' && c.status === 'True',
+                ),
+            )
+            .map((mc) => ({
+              clusterName: mc.metadata?.name ?? '',
+              zone: mc.metadata?.labels?.['tenancy.acm.io/zone'] ?? '',
+            }))
+            .filter((o) => o.clusterName),
+        );
+      } catch {
+        if (!cancelled) setVmTargetOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const vmZones = React.useMemo(
+    () => [...new Set(vmTargetOptions.map((o) => o.zone).filter(Boolean))].sort(),
+    [vmTargetOptions],
+  );
 
   const hydrateKey = isEdit
     ? `${existing?.metadata?.uid ?? ''}:${existing?.metadata?.resourceVersion ?? ''}`
@@ -655,24 +697,30 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                   <Grid hasGutter style={{ marginTop: '0.75rem' }}>
                     <GridItem span={6}>
                       <FormGroup
-                        label="Target cluster"
-                        fieldId="seed-vm-cluster"
+                        label="Seed target"
+                        fieldId="seed-vm-mode"
                         labelHelp={helpPopover(
-                          'Managed cluster for the ManifestWork. Defaults to virtualisation-cluster.',
-                          'Target cluster',
+                          'All VM clusters seeds one starter VM per eligible managed cluster. Selected zones seeds to clusters with matching tenancy.acm.io/zone labels.',
+                          'Seed target',
                         )}
                       >
-                        <TextInput
-                          id="seed-vm-cluster"
-                          value={spec.seedStarterVm.cluster}
+                        <FormSelect
+                          id="seed-vm-mode"
+                          value={spec.seedStarterVm.mode}
                           onChange={(_e, v) =>
                             setSpec((prev) => ({
                               ...prev,
-                              seedStarterVm: { ...prev.seedStarterVm, cluster: v },
+                              seedStarterVm: {
+                                ...prev.seedStarterVm,
+                                mode: v as SeedVmTargetMode,
+                              },
                             }))
                           }
-                          placeholder="virtualisation-cluster"
-                        />
+                        >
+                          <FormSelectOption value="all" label="All VM clusters" />
+                          <FormSelectOption value="selected" label="Selected zones" />
+                          <FormSelectOption value="single" label="Single cluster" />
+                        </FormSelect>
                       </FormGroup>
                     </GridItem>
                     <GridItem span={6}>
@@ -697,6 +745,119 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                         />
                       </FormGroup>
                     </GridItem>
+                    {spec.seedStarterVm.mode === 'single' && (
+                      <GridItem span={6}>
+                        <FormGroup
+                          label="Target cluster"
+                          fieldId="seed-vm-cluster"
+                          labelHelp={helpPopover(
+                            'Managed cluster for the ManifestWork. Leave blank to use the first VM-capable cluster.',
+                            'Target cluster',
+                          )}
+                        >
+                          <TextInput
+                            id="seed-vm-cluster"
+                            value={spec.seedStarterVm.cluster}
+                            onChange={(_e, v) =>
+                              setSpec((prev) => ({
+                                ...prev,
+                                seedStarterVm: { ...prev.seedStarterVm, cluster: v },
+                              }))
+                            }
+                            placeholder="virt-cluster-northshore-region"
+                          />
+                        </FormGroup>
+                      </GridItem>
+                    )}
+                    {spec.seedStarterVm.mode === 'selected' && (
+                      <>
+                        <GridItem span={12}>
+                          <FormGroup
+                            label="Zones"
+                            fieldId="seed-vm-zones"
+                            labelHelp={helpPopover(
+                              'Clusters labelled tenancy.acm.io/zone=<zone> receive a starter VM.',
+                              'Zones',
+                            )}
+                          >
+                            {vmZones.length === 0 ? (
+                              <FormHelperText>
+                                No VM zones found — label managed clusters with
+                                {' '}
+                                <code>tenancy.acm.io/zone</code>
+                                {' '}
+                                or pick clusters below.
+                              </FormHelperText>
+                            ) : (
+                              vmZones.map((zone) => (
+                                <div key={zone}>
+                                  <input
+                                    id={`seed-zone-${zone}`}
+                                    type="checkbox"
+                                    checked={spec.seedStarterVm.zones.includes(zone)}
+                                    onChange={(e) =>
+                                      setSpec((prev) => {
+                                        const zones = new Set(prev.seedStarterVm.zones);
+                                        if (e.target.checked) zones.add(zone);
+                                        else zones.delete(zone);
+                                        return {
+                                          ...prev,
+                                          seedStarterVm: {
+                                            ...prev.seedStarterVm,
+                                            zones: [...zones],
+                                          },
+                                        };
+                                      })
+                                    }
+                                  />
+                                  {' '}
+                                  <label htmlFor={`seed-zone-${zone}`}>{zone}</label>
+                                </div>
+                              ))
+                            )}
+                          </FormGroup>
+                        </GridItem>
+                        <GridItem span={12}>
+                          <FormGroup
+                            label="Clusters (optional)"
+                            fieldId="seed-vm-clusters"
+                            labelHelp={helpPopover(
+                              'Explicit managed cluster names. Unioned with selected zones.',
+                              'Clusters',
+                            )}
+                          >
+                            {vmTargetOptions.map((opt) => (
+                              <div key={opt.clusterName}>
+                                <input
+                                  id={`seed-cluster-${opt.clusterName}`}
+                                  type="checkbox"
+                                  checked={spec.seedStarterVm.clusters.includes(opt.clusterName)}
+                                  onChange={(e) =>
+                                    setSpec((prev) => {
+                                      const clusters = new Set(prev.seedStarterVm.clusters);
+                                      if (e.target.checked) clusters.add(opt.clusterName);
+                                      else clusters.delete(opt.clusterName);
+                                      return {
+                                        ...prev,
+                                        seedStarterVm: {
+                                          ...prev.seedStarterVm,
+                                          clusters: [...clusters],
+                                        },
+                                      };
+                                    })
+                                  }
+                                />
+                                {' '}
+                                <label htmlFor={`seed-cluster-${opt.clusterName}`}>
+                                  {opt.clusterName}
+                                  {opt.zone ? ` (${opt.zone})` : ''}
+                                </label>
+                              </div>
+                            ))}
+                          </FormGroup>
+                        </GridItem>
+                      </>
+                    )}
                   </Grid>
                 )}
               </div>
