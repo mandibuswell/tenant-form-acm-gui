@@ -219,8 +219,14 @@ const parseSeedStarterVm = (
   // Explicit false opts out; omit / true keeps default-on for VM profiles
   const enabled = raw.enabled === false ? false : wantsVm ? true : Boolean(raw.enabled);
   const modeRaw = str(raw.mode);
+  const modeMissing = !modeRaw;
   const mode =
     modeRaw === 'all' || modeRaw === 'selected' || modeRaw === 'single' ? modeRaw : 'single';
+  const clusterRaw = str(raw.cluster);
+  // Pre-mode tenants often stored a legacy default cluster name; leave blank so the
+  // reconciler picks the first VM-capable cluster (or the user sets an explicit target).
+  const cluster =
+    modeMissing || clusterRaw === 'virtualisation-cluster' ? '' : clusterRaw;
   const zones = Array.isArray(raw.zones)
     ? raw.zones.map((z) => str(z)).filter(Boolean)
     : [];
@@ -230,7 +236,7 @@ const parseSeedStarterVm = (
   return {
     enabled,
     mode,
-    cluster: str(raw.cluster),
+    cluster,
     zones,
     clusters,
     vmName: str(raw.vmName),
