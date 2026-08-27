@@ -59,6 +59,77 @@ const TenantsHelpContent: React.FC = () => (
     </List>
 
     <Title headingLevel="h3" size="md" style={{ marginTop: '1.25rem', marginBottom: '0.5rem' }}>
+      Labeling clusters for workload profiles
+    </Title>
+    <Content component={ContentVariants.p}>
+      A tenant&apos;s workload profile controls what policies create for that tenant. Managed
+      clusters must carry capability labels so ACM knows which spokes can host which workload
+      types. A spoke with neither label is excluded from tenant provisioning.
+    </Content>
+    <List style={{ marginTop: '0.5rem' }}>
+      <ListItem>
+        <code>tenancy.acm.io/capability-container=true</code> — container and application
+        workloads (tenant namespace, ResourceQuota, RBAC).
+      </ListItem>
+      <ListItem>
+        <code>tenancy.acm.io/capability-vm=true</code> — OpenShift Virtualization; VM quotas,
+        KubeVirt console access, and optional starter VMs.
+      </ListItem>
+      <ListItem>
+        Both labels on one cluster — supports the <strong>Containers + VMs</strong> profile on
+        that spoke.
+      </ListItem>
+    </List>
+    <Content component={ContentVariants.p} style={{ marginTop: '0.75rem' }}>
+      Match labels on your fleet to the tenant profile you assign:
+    </Content>
+    <List>
+      <ListItem>
+        <strong>VMs</strong> — at least one spoke with <code>capability-vm</code>.
+      </ListItem>
+      <ListItem>
+        <strong>Containers</strong> — at least one spoke with <code>capability-container</code>.
+      </ListItem>
+      <ListItem>
+        <strong>Containers + VMs</strong> — VM policies land only on VM-capable spokes;
+        container policies only on container-capable spokes (a spoke can have one or both
+        labels).
+      </ListItem>
+      <ListItem>
+        <strong>Clusters (CaaS)</strong> — hosted control planes on the hub; managed-cluster
+        capability labels are not used for tenant compute placement.
+      </ListItem>
+    </List>
+    <Content component={ContentVariants.p} style={{ marginTop: '0.75rem' }}>
+      Optional: set <code>tenancy.acm.io/zone=&lt;name&gt;</code> on VM-capable spokes to
+      target starter VMs at specific regions when you choose zone-based seeding on the create
+      form.
+    </Content>
+    <Content component={ContentVariants.p} style={{ marginTop: '0.75rem' }}>
+      Label clusters from Fleet Management (Clusters) or with{' '}
+      <code>oc label managedcluster</code> on the hub:
+    </Content>
+    <pre
+      style={{
+        marginTop: '0.5rem',
+        padding: '0.75rem',
+        background: 'var(--pf-v6-global--BackgroundColor--100)',
+        fontSize: '0.875rem',
+        overflowX: 'auto',
+      }}
+    >
+      {`# Container-only spoke
+oc label managedcluster aws-us \\
+  tenancy.acm.io/capability-container=true --overwrite
+
+# Virtualization spoke (containers + VMs, with a zone for seed targeting)
+oc label managedcluster virt-cluster-northshore-region \\
+  tenancy.acm.io/capability-container=true \\
+  tenancy.acm.io/capability-vm=true \\
+  tenancy.acm.io/zone=northshore --overwrite`}
+    </pre>
+
+    <Title headingLevel="h3" size="md" style={{ marginTop: '1.25rem', marginBottom: '0.5rem' }}>
       How isolation is enforced
     </Title>
     <List>

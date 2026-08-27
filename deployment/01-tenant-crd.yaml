@@ -265,7 +265,7 @@ spec:
                             Workshop use only — not for production.
                         seedPassword:
                           type: string
-                          default: password
+                          default: HugAPug2026!
                           description: >-
                             Initial password for seed users when seedUsers is true.
                             Stored in plain text on the Tenant CR — workshop use only.

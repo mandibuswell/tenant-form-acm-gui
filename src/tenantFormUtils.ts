@@ -13,6 +13,9 @@ import {
   WorkloadProfile,
 } from './tenantFormTypes';
 
+/** Default Keycloak seed-user password for workshop tenants (not production). */
+export const DEFAULT_SEED_PASSWORD = 'HugAPug2026!';
+
 export const SecretModel = {
   apiVersion: 'v1',
   kind: 'Secret',
@@ -159,7 +162,7 @@ export const defaultTenantSpec = (): TenantSpecForm => {
       keycloakInstance: 'main',
       manageRealm: false,
       seedUsers: false,
-      seedPassword: 'password',
+      seedPassword: DEFAULT_SEED_PASSWORD,
       requirePasswordChange: false,
     },
   };
@@ -202,7 +205,7 @@ const parseIdentity = (raw: Record<string, unknown> | undefined): IdentityForm =
     keycloakInstance: str(keycloak.instanceName) || 'main',
     manageRealm: Boolean(keycloak.manageRealm),
     seedUsers: Boolean(keycloak.seedUsers),
-    seedPassword: str(keycloak.seedPassword) || 'password',
+    seedPassword: str(keycloak.seedPassword) || DEFAULT_SEED_PASSWORD,
     requirePasswordChange: Boolean(keycloak.requirePasswordChange),
   };
 };
@@ -554,7 +557,7 @@ export function buildTenantResource(params: {
       if (spec.identity.manageRealm && spec.identity.seedUsers) {
         (identity.keycloak as Record<string, unknown>).seedUsers = true;
         (identity.keycloak as Record<string, unknown>).seedPassword =
-          spec.identity.seedPassword.trim() || 'password';
+          spec.identity.seedPassword.trim() || DEFAULT_SEED_PASSWORD;
         if (spec.identity.requirePasswordChange) {
           (identity.keycloak as Record<string, unknown>).requirePasswordChange = true;
         }

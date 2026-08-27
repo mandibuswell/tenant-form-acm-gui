@@ -39,6 +39,7 @@ import {
 } from '../tenantFormTypes';
 import {
   buildTenantResource,
+  DEFAULT_SEED_PASSWORD,
   defaultTenantSpec,
   derivedGroups,
   generateClientSecret,
@@ -104,6 +105,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState('');
   const [identitySecretUnchanged, setIdentitySecretUnchanged] = React.useState(isEdit);
+  const [showClientSecret, setShowClientSecret] = React.useState(false);
   const [showSeedPassword, setShowSeedPassword] = React.useState(false);
   const [formReady, setFormReady] = React.useState(!isEdit);
   const [vmTargetOptions, setVmTargetOptions] = React.useState<
@@ -1071,7 +1073,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                         <InputGroupItem isFill>
                           <TextInput
                             id="client-secret"
-                            type="password"
+                            type={showClientSecret ? 'text' : 'password'}
                             placeholder={
                               isEdit
                                 ? 'Leave blank to keep existing secret'
@@ -1085,6 +1087,17 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                                 : 'default'
                             }
                             isRequired={!isEdit}
+                            autoComplete="new-password"
+                          />
+                        </InputGroupItem>
+                        <InputGroupItem>
+                          <Button
+                            variant="control"
+                            aria-label={
+                              showClientSecret ? 'Hide client secret' : 'Show client secret'
+                            }
+                            onClick={() => setShowClientSecret((prev) => !prev)}
+                            icon={showClientSecret ? <EyeSlashIcon /> : <EyeIcon />}
                           />
                         </InputGroupItem>
                         <InputGroupItem>
@@ -1164,6 +1177,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                                     <TextInput
                                       id="seed-password"
                                       type={showSeedPassword ? 'text' : 'password'}
+                                      placeholder={DEFAULT_SEED_PASSWORD}
                                       value={spec.identity.seedPassword}
                                       onChange={(_e, v) => updateIdentity('seedPassword', v)}
                                       autoComplete="new-password"
@@ -1173,7 +1187,7 @@ const TenantFormPage: React.FC<TenantFormPageProps> = ({ mode, existing, initial
                                     <Button
                                       variant="control"
                                       aria-label={
-                                        showSeedPassword ? 'Hide password' : 'Show password'
+                                        showSeedPassword ? 'Hide seed user password' : 'Show seed user password'
                                       }
                                       onClick={() => setShowSeedPassword((prev) => !prev)}
                                       icon={showSeedPassword ? <EyeSlashIcon /> : <EyeIcon />}
