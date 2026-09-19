@@ -10,3 +10,14 @@ export const TenantModel: K8sModel = {
   label: 'Tenant',
   labelPlural: 'Tenants',
 };
+
+export const ManagedClusterModel: K8sModel = {
+  apiGroup: 'cluster.open-cluster-management.io',
+  apiVersion: 'v1',
+  kind: 'ManagedCluster',
+  plural: 'managedclusters',
+  abbr: 'MC',
+  namespaced: false,
+  label: 'Managed Cluster',
+  labelPlural: 'Managed Clusters',
+};

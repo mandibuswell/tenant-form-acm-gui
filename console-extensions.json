@@ -23,6 +23,17 @@
     "type": "console.page/route",
     "properties": {
       "exact": true,
+      "path": "/tenants/help",
+      "perspective": "acm",
+      "component": {
+        "$codeRef": "TenantsHelpPage"
+      }
+    }
+  },
+  {
+    "type": "console.page/route",
+    "properties": {
+      "exact": true,
       "path": "/tenants/create",
       "perspective": "acm",
       "component": {

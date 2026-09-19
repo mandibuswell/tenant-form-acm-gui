@@ -2,14 +2,19 @@ import { k8sCreate, k8sGet, k8sUpdate } from '@openshift-console/dynamic-plugin-
 import {
   DEFAULT_MY_ASN,
   DEFAULT_NAMESPACE,
-  DEMO_CLIENT_SECRET,
+  DEFAULT_UDN_SUBNET,
   IdentityForm,
   MetallbForm,
+  SeedStarterVmForm,
+  ClusterAsAServiceForm,
   TenantFormMode,
   TenantResource,
   TenantSpecForm,
   WorkloadProfile,
 } from './tenantFormTypes';
+
+/** Default Keycloak seed-user password for workshop tenants (not production). */
+export const DEFAULT_SEED_PASSWORD = 'HugAPug2026!';
 
 export const SecretModel = {
   apiVersion: 'v1',
@@ -21,35 +26,147 @@ export const SecretModel = {
   labelPlural: 'Secrets',
 };
 
-export const defaultTenantSpec = (): TenantSpecForm => ({
-  displayName: '',
-  owner: '',
-  workloadNamespace: '',
-  workloadProfile: 'vms',
-  adminGroup: '',
-  userGroup: '',
-  viewerGroup: '',
-  resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
-  vmQuota: { cpu: '80', memory: '320Gi' },
-  limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
-  network: {
-    udnSubnet: '',
-    metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
+/**
+ * Spoke + hub quota defaults keyed by workload profile (form create / profile switch).
+ *
+ * TODO(https://github.com/mandibuswell/tenant-form-acm-gui/issues/8): Load these from
+ * operator config (ConfigMap / Helm values) so platform admins can set hub + VM defaults
+ * per profile without rebuilding the plugin.
+ */
+export const PROFILE_QUOTA_DEFAULTS: Record<
+  WorkloadProfile,
+  {
+    resourceQuota: TenantSpecForm['resourceQuota'];
+    vmQuota: TenantSpecForm['vmQuota'];
+    limitRange: TenantSpecForm['limitRange'];
+    hubCpu: string;
+    hubMemory: string;
+    hubPods: string;
+  }
+> = {
+  vms: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '80', memory: '320Gi' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    // Hub HCP defaults (used when switching to clusters) — sized for one HA HCP
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-  identity: {
-    enabled: false,
-    provider: 'keycloak',
-    clientSecret: '',
-    consoleLoginName: '',
-    oidcIssuer: '',
-    keycloakNamespace: 'keycloak-system',
-    keycloakInstance: 'main',
-    manageRealm: false,
-    seedUsers: false,
-    seedPassword: 'password',
-    requirePasswordChange: false,
+  containers: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '', memory: '' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
   },
-});
+  both: {
+    resourceQuota: { cpu: '86', memory: '332Gi', pods: '15', storage: '2000Gi' },
+    vmQuota: { cpu: '80', memory: '320Gi' },
+    limitRange: { maxCpu: '32', maxMemory: '128Gi', maxStorage: '1Ti' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
+  },
+  // CaaS: hub HCP quota only (one HA HCP); spoke/VM constraints optional (blank until set)
+  clusters: {
+    resourceQuota: { cpu: '', memory: '', pods: '', storage: '' },
+    vmQuota: { cpu: '', memory: '' },
+    limitRange: { maxCpu: '', maxMemory: '', maxStorage: '' },
+    hubCpu: '12',
+    hubMemory: '32Gi',
+    hubPods: '150',
+  },
+};
+
+/** Apply profile quota defaults when the administrator changes Workload profile. */
+export function applyWorkloadProfileQuotaDefaults(
+  prev: TenantSpecForm,
+  profile: WorkloadProfile,
+): TenantSpecForm {
+  const d = PROFILE_QUOTA_DEFAULTS[profile];
+  return {
+    ...prev,
+    workloadProfile: profile,
+    resourceQuota: { ...d.resourceQuota },
+    vmQuota: { ...d.vmQuota },
+    limitRange: { ...d.limitRange },
+    seedStarterVm: {
+      ...prev.seedStarterVm,
+      enabled: profile === 'vms' || profile === 'both',
+    },
+    // CaaS: no hub console IdP at create — guest SSO is an edit-after step.
+    identity: {
+      ...prev.identity,
+      enabled: profile === 'clusters' ? false : prev.identity.enabled,
+    },
+    clusterAsAService: {
+      ...prev.clusterAsAService,
+      hubCpu: prev.clusterAsAService.hubCpu.trim() || d.hubCpu,
+      hubMemory: prev.clusterAsAService.hubMemory.trim() || d.hubMemory,
+      hubPods: prev.clusterAsAService.hubPods.trim() || d.hubPods,
+    },
+  };
+}
+
+/** Keep only non-empty string fields; omit the object when nothing is set. */
+const compactStringFields = <T extends Record<string, string>>(
+  obj: T,
+): Record<string, string> | undefined => {
+  const out: Record<string, string> = {};
+  Object.entries(obj).forEach(([k, v]) => {
+    if (v.trim()) out[k] = v.trim();
+  });
+  return Object.keys(out).length ? out : undefined;
+};
+
+export const defaultTenantSpec = (): TenantSpecForm => {
+  const d = PROFILE_QUOTA_DEFAULTS.vms;
+  return {
+    displayName: '',
+    owner: '',
+    workloadNamespace: '',
+    workloadProfile: 'vms',
+    adminGroup: '',
+    userGroup: '',
+    viewerGroup: '',
+    resourceQuota: { ...d.resourceQuota },
+    vmQuota: { ...d.vmQuota },
+    limitRange: { ...d.limitRange },
+    network: {
+      udnSubnet: DEFAULT_UDN_SUBNET,
+      metallb: { myASN: DEFAULT_MY_ASN, peerASN: '', peerAddress: '', vrf: '', addresses: [] },
+    },
+    seedStarterVm: {
+      enabled: true,
+      mode: 'all',
+      cluster: '',
+      zones: [],
+      clusters: [],
+      vmName: '',
+    },
+    clusterAsAService: {
+      hcpNamespace: '',
+      hubCpu: d.hubCpu,
+      hubMemory: d.hubMemory,
+      hubPods: d.hubPods,
+    },
+    identity: {
+      enabled: false,
+      provider: 'keycloak',
+      clientSecret: '',
+      consoleLoginName: '',
+      oidcIssuer: '',
+      keycloakNamespace: 'keycloak-system',
+      keycloakInstance: 'main',
+      manageRealm: false,
+      seedUsers: false,
+      seedPassword: DEFAULT_SEED_PASSWORD,
+      requirePasswordChange: false,
+    },
+  };
+};
 
 const str = (v: unknown): string => (v === undefined || v === null ? '' : String(v));
 
@@ -88,8 +205,60 @@ const parseIdentity = (raw: Record<string, unknown> | undefined): IdentityForm =
     keycloakInstance: str(keycloak.instanceName) || 'main',
     manageRealm: Boolean(keycloak.manageRealm),
     seedUsers: Boolean(keycloak.seedUsers),
-    seedPassword: str(keycloak.seedPassword) || 'password',
+    seedPassword: str(keycloak.seedPassword) || DEFAULT_SEED_PASSWORD,
     requirePasswordChange: Boolean(keycloak.requirePasswordChange),
+  };
+};
+
+const parseSeedStarterVm = (
+  raw: Record<string, unknown> | undefined,
+  workloadProfile: WorkloadProfile,
+): SeedStarterVmForm => {
+  const wantsVm = workloadProfile === 'vms' || workloadProfile === 'both';
+  const base = defaultTenantSpec().seedStarterVm;
+  if (!raw) {
+    return { ...base, enabled: wantsVm };
+  }
+  // Explicit false opts out; omit / true keeps default-on for VM profiles
+  const enabled = raw.enabled === false ? false : wantsVm ? true : Boolean(raw.enabled);
+  const modeRaw = str(raw.mode);
+  const modeMissing = !modeRaw;
+  const mode =
+    modeRaw === 'all' || modeRaw === 'selected' || modeRaw === 'single' ? modeRaw : 'single';
+  const clusterRaw = str(raw.cluster);
+  // Pre-mode tenants often stored a legacy default cluster name; leave blank so the
+  // reconciler picks the first VM-capable cluster (or the user sets an explicit target).
+  const cluster =
+    modeMissing || clusterRaw === 'virtualisation-cluster' ? '' : clusterRaw;
+  const zones = Array.isArray(raw.zones)
+    ? raw.zones.map((z) => str(z)).filter(Boolean)
+    : [];
+  const clusters = Array.isArray(raw.clusters)
+    ? raw.clusters.map((c) => str(c)).filter(Boolean)
+    : [];
+  return {
+    enabled,
+    mode,
+    cluster,
+    zones,
+    clusters,
+    vmName: str(raw.vmName),
+  };
+};
+
+const parseClusterAsAService = (
+  raw: Record<string, unknown> | undefined,
+): ClusterAsAServiceForm => {
+  const base = defaultTenantSpec().clusterAsAService;
+  if (!raw) {
+    return { ...base };
+  }
+  const hubRq = (raw.hubResourceQuota ?? {}) as Record<string, unknown>;
+  return {
+    hcpNamespace: str(raw.hcpNamespace),
+    hubCpu: str(hubRq.cpu) || base.hubCpu,
+    hubMemory: str(hubRq.memory) || base.hubMemory,
+    hubPods: str(hubRq.pods) || base.hubPods,
   };
 };
 
@@ -110,6 +279,7 @@ export function parseTenantResource(tenant: TenantResource): {
   const rq = (s.resourceQuota ?? {}) as Record<string, string>;
   const vmq = (s.vmQuota ?? {}) as Record<string, string>;
   const lr = (s.limitRange ?? {}) as Record<string, string>;
+  const qd = PROFILE_QUOTA_DEFAULTS[workloadProfile];
 
   const spec: TenantSpecForm = {
     displayName: str(s.displayName),
@@ -119,25 +289,33 @@ export function parseTenantResource(tenant: TenantResource): {
     adminGroup: str(s.adminGroup),
     userGroup: str(s.userGroup),
     viewerGroup: str(s.viewerGroup),
+    // Prefer values on the CR; fall back to profile defaults (blank for CaaS)
     resourceQuota: {
-      cpu: rq.cpu ?? '86',
-      memory: rq.memory ?? '332Gi',
-      pods: rq.pods ?? '15',
-      storage: rq.storage ?? '2000Gi',
+      cpu: rq.cpu !== undefined ? str(rq.cpu) : qd.resourceQuota.cpu,
+      memory: rq.memory !== undefined ? str(rq.memory) : qd.resourceQuota.memory,
+      pods: rq.pods !== undefined ? str(rq.pods) : qd.resourceQuota.pods,
+      storage: rq.storage !== undefined ? str(rq.storage) : qd.resourceQuota.storage,
     },
     vmQuota: {
-      cpu: vmq.cpu ?? '80',
-      memory: vmq.memory ?? '320Gi',
+      cpu: vmq.cpu !== undefined ? str(vmq.cpu) : qd.vmQuota.cpu,
+      memory: vmq.memory !== undefined ? str(vmq.memory) : qd.vmQuota.memory,
     },
     limitRange: {
-      maxCpu: lr.maxCpu ?? '32',
-      maxMemory: lr.maxMemory ?? '128Gi',
-      maxStorage: lr.maxStorage ?? '1Ti',
+      maxCpu: lr.maxCpu !== undefined ? str(lr.maxCpu) : qd.limitRange.maxCpu,
+      maxMemory: lr.maxMemory !== undefined ? str(lr.maxMemory) : qd.limitRange.maxMemory,
+      maxStorage: lr.maxStorage !== undefined ? str(lr.maxStorage) : qd.limitRange.maxStorage,
     },
     network: {
-      udnSubnet: str(network.udnSubnet),
+      udnSubnet: str(network.udnSubnet) || DEFAULT_UDN_SUBNET,
       metallb: parseMetallb(network.metallb as Record<string, unknown>),
     },
+    seedStarterVm: parseSeedStarterVm(
+      s.seedStarterVm as Record<string, unknown> | undefined,
+      workloadProfile,
+    ),
+    clusterAsAService: parseClusterAsAService(
+      s.clusterAsAService as Record<string, unknown> | undefined,
+    ),
     identity: parseIdentity(s.identity as Record<string, unknown>),
   };
 
@@ -168,9 +346,6 @@ export function resolveTenantIdentity(params: {
     params.existing?.metadata?.name?.trim() ||
     '';
   const tenantNamespace =
-    params.namespace.trim() ||
-    params.initial?.namespace?.trim() ||
-    params.existing?.metadata?.namespace?.trim() ||
     DEFAULT_NAMESPACE;
   const specWorkload = params.spec.workloadNamespace.trim();
   const existingWorkload = str(params.existing?.spec?.workloadNamespace);
@@ -215,7 +390,16 @@ export function validateTenantForm(params: {
   if (!resolvedName) errs.push('Tenant name is required.');
   if (!resolvedAdmin) errs.push('Admin Group is required.');
   if (!resolvedUser) errs.push('User Group is required.');
-  if (spec.identity.enabled) {
+  if (
+    (spec.workloadProfile === 'vms' || spec.workloadProfile === 'both') &&
+    spec.seedStarterVm.enabled &&
+    spec.seedStarterVm.mode === 'selected' &&
+    !spec.seedStarterVm.zones.some((z) => z.trim()) &&
+    !spec.seedStarterVm.clusters.some((c) => c.trim())
+  ) {
+    errs.push('Select at least one zone or cluster for starter VM seeding.');
+  }
+  if (spec.identity.enabled && spec.workloadProfile !== 'clusters') {
     const secretRequired =
       mode === 'create' || (mode === 'edit' && !identitySecretUnchanged);
     if (secretRequired && !spec.identity.clientSecret.trim()) {
@@ -267,26 +451,29 @@ export function buildTenantResource(params: {
       userGroup: effectiveUserGroup,
       viewerGroup: effectiveViewerGroup,
       workloadProfile: spec.workloadProfile,
-      resourceQuota: { ...spec.resourceQuota },
-      vmQuota: { ...spec.vmQuota },
-      limitRange: { ...spec.limitRange },
     },
   };
 
+  const tenantSpec = tenant.spec as Record<string, unknown>;
+  const resourceQuota = compactStringFields(spec.resourceQuota);
+  if (resourceQuota) tenantSpec.resourceQuota = resourceQuota;
+  const vmQuota = compactStringFields(spec.vmQuota);
+  if (vmQuota) tenantSpec.vmQuota = vmQuota;
+  const limitRange = compactStringFields(spec.limitRange);
+  if (limitRange) tenantSpec.limitRange = limitRange;
+
   if (spec.displayName.trim()) {
-    (tenant.spec as Record<string, unknown>).displayName = spec.displayName.trim();
+    tenantSpec.displayName = spec.displayName.trim();
   }
   if (spec.owner.trim()) {
-    (tenant.spec as Record<string, unknown>).owner = spec.owner.trim();
+    tenantSpec.owner = spec.owner.trim();
   }
   if (spec.workloadNamespace.trim() && spec.workloadNamespace.trim() !== tenantName) {
-    (tenant.spec as Record<string, unknown>).workloadNamespace = spec.workloadNamespace.trim();
+    tenantSpec.workloadNamespace = spec.workloadNamespace.trim();
   }
 
   const network: Record<string, unknown> = {};
-  if (spec.network.udnSubnet.trim()) {
-    network.udnSubnet = spec.network.udnSubnet.trim();
-  }
+  network.udnSubnet = spec.network.udnSubnet.trim() || DEFAULT_UDN_SUBNET;
   const mb = spec.network.metallb;
   const hasMetallb =
     mb.peerASN || mb.peerAddress || effectiveVrf || mb.addresses.some((a) => a.trim());
@@ -305,7 +492,48 @@ export function buildTenantResource(params: {
     (tenant.spec as Record<string, unknown>).network = network;
   }
 
-  if (spec.identity.enabled) {
+  const wantsVmProfile =
+    spec.workloadProfile === 'vms' || spec.workloadProfile === 'both';
+  if (wantsVmProfile) {
+    const seed: Record<string, unknown> = {
+      enabled: spec.seedStarterVm.enabled,
+      mode: spec.seedStarterVm.mode,
+    };
+    if (spec.seedStarterVm.mode === 'single' && spec.seedStarterVm.cluster.trim()) {
+      seed.cluster = spec.seedStarterVm.cluster.trim();
+    }
+    if (spec.seedStarterVm.mode === 'selected') {
+      const zones = spec.seedStarterVm.zones.map((z) => z.trim()).filter(Boolean);
+      const clusters = spec.seedStarterVm.clusters.map((c) => c.trim()).filter(Boolean);
+      if (zones.length) seed.zones = zones;
+      if (clusters.length) seed.clusters = clusters;
+    }
+    if (spec.seedStarterVm.vmName.trim()) {
+      seed.vmName = spec.seedStarterVm.vmName.trim();
+    }
+    (tenant.spec as Record<string, unknown>).seedStarterVm = seed;
+  } else if (existing?.spec?.seedStarterVm) {
+    (tenant.spec as Record<string, unknown>).seedStarterVm = { enabled: false };
+  }
+
+  if (spec.workloadProfile === 'clusters') {
+    const hub = PROFILE_QUOTA_DEFAULTS.clusters;
+    const caas: Record<string, unknown> = {
+      hubResourceQuota: {
+        cpu: spec.clusterAsAService.hubCpu.trim() || hub.hubCpu,
+        memory: spec.clusterAsAService.hubMemory.trim() || hub.hubMemory,
+        pods: spec.clusterAsAService.hubPods.trim() || hub.hubPods,
+      },
+    };
+    // Control plane namespace is fixed as {tenant}-hcp (policy default); not form-overridable.
+    tenantSpec.clusterAsAService = caas;
+  }
+
+  // CaaS tenants never register a hub oauth/cluster IdP; guest SSO is edit-after.
+  const hubIdentityEnabled =
+    spec.identity.enabled && spec.workloadProfile !== 'clusters';
+
+  if (hubIdentityEnabled) {
     const idpName = spec.identity.consoleLoginName.trim() || `${tenantName}-idp`;
     const identity: Record<string, unknown> = {
       enabled: true,
@@ -323,11 +551,13 @@ export function buildTenantResource(params: {
         instanceName: spec.identity.keycloakInstance.trim() || 'main',
         realm: tenantName,
         manageRealm: spec.identity.manageRealm,
+        // Match pre-mounted themes/<tenant>.css from apply-themes --no-tenant
+        loginTheme: tenantName,
       };
       if (spec.identity.manageRealm && spec.identity.seedUsers) {
         (identity.keycloak as Record<string, unknown>).seedUsers = true;
         (identity.keycloak as Record<string, unknown>).seedPassword =
-          spec.identity.seedPassword.trim() || 'password';
+          spec.identity.seedPassword.trim() || DEFAULT_SEED_PASSWORD;
         if (spec.identity.requirePasswordChange) {
           (identity.keycloak as Record<string, unknown>).requirePasswordChange = true;
         }
@@ -349,6 +579,7 @@ export function buildTenantResource(params: {
               instanceName: str(prevKeycloak.instanceName) || 'main',
               realm: str(prevKeycloak.realm) || tenantName,
               manageRealm: true,
+              loginTheme: str(prevKeycloak.loginTheme) || tenantName,
             },
           }
         : {}),
@@ -401,4 +632,9 @@ export function shouldExpandNetwork(spec: TenantSpecForm): boolean {
   );
 }
 
-export const demoClientSecretForEnable = (): string => DEMO_CLIENT_SECRET;
+/** Generate a URL-safe random OIDC client secret (base64url, 32 chars). */
+export function generateClientSecret(): string {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_');
+}

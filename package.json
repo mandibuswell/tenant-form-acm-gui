@@ -38,6 +38,7 @@
     "description": "Create and edit Tenant custom resources from a guided form in the ACM console.",
     "exposedModules": {
       "TenantsListPage": "./components/TenantsListPage",
+      "TenantsHelpPage": "./components/TenantsHelpPage",
       "CreateTenantPage": "./components/CreateTenantPage",
       "EditTenantPage": "./components/EditTenantPage",
       "LegacyCreateRedirect": "./components/LegacyCreateRedirect",

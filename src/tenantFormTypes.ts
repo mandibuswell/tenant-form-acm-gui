@@ -1,6 +1,7 @@
 export const DEFAULT_NAMESPACE = 'tenancies';
 export const DEFAULT_MY_ASN = '64500';
-export const DEMO_CLIENT_SECRET = 'VDRjA2vWjJwlSZQ9tickuGkBQpiiJHdN';
+/** Shared default UDN CIDR — overridable per tenant; overlap across tenants is valid (isolated UDNs). */
+export const DEFAULT_UDN_SUBNET = '10.128.0.0/16';
 
 export interface MetallbForm {
   myASN: string;
@@ -24,7 +25,29 @@ export interface IdentityForm {
   requirePasswordChange: boolean;
 }
 
-export type WorkloadProfile = 'vms' | 'containers' | 'both';
+export type WorkloadProfile = 'vms' | 'containers' | 'both' | 'clusters';
+
+export type SeedVmTargetMode = 'single' | 'all' | 'selected';
+
+export interface SeedStarterVmForm {
+  /** Default true for vms/both — set false to opt out */
+  enabled: boolean;
+  mode: SeedVmTargetMode;
+  /** Used when mode is single */
+  cluster: string;
+  /** Used when mode is selected — tenancy.acm.io/zone labels */
+  zones: string[];
+  /** Used when mode is selected — explicit managed cluster names */
+  clusters: string[];
+  vmName: string;
+}
+
+export interface ClusterAsAServiceForm {
+  hcpNamespace: string;
+  hubCpu: string;
+  hubMemory: string;
+  hubPods: string;
+}
 
 export interface TenantSpecForm {
   displayName: string;
@@ -38,6 +61,8 @@ export interface TenantSpecForm {
   vmQuota: { cpu: string; memory: string };
   limitRange: { maxCpu: string; maxMemory: string; maxStorage: string };
   network: { udnSubnet: string; metallb: MetallbForm };
+  seedStarterVm: SeedStarterVmForm;
+  clusterAsAService: ClusterAsAServiceForm;
   identity: IdentityForm;
 }
 

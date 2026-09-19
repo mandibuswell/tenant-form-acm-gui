@@ -9,11 +9,23 @@ if ! oc whoami &>/dev/null; then
   exit 1
 fi
 
-# 1. Remove the plugin from the console operator
+# 1. Remove only this plugin from the console operator (preserve other plugins)
 echo "==> [1/4] Disabling plugin in the console..."
-oc patch console.operator cluster --type json \
-  --patch '[{"op":"test","path":"/spec/plugins","value":["tenant-form-acm-gui"]},{"op":"remove","path":"/spec/plugins"}]' 2>/dev/null \
-  || echo "    Plugin was not in the console plugins list (skipped)"
+PLUGIN_NAME="tenant-form-acm-gui"
+plugins_json="$(oc get console.operator cluster -o jsonpath='{.spec.plugins}' 2>/dev/null || echo '[]')"
+idx="$(python3 - <<PY
+import json
+plugins = json.loads('''${plugins_json}''')
+name = "${PLUGIN_NAME}"
+print(next((i for i, p in enumerate(plugins) if p == name), -1))
+PY
+)"
+if [ "${idx}" -ge 0 ]; then
+  oc patch console.operator cluster --type=json \
+    -p="[{\"op\":\"remove\",\"path\":\"/spec/plugins/${idx}\"}]"
+else
+  echo "    Plugin was not in the console plugins list (skipped)"
+fi
 
 # 2. Delete the ConsolePlugin CR
 echo "==> [2/4] Deleting ConsolePlugin..."
